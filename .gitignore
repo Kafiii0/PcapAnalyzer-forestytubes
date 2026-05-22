@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# Compiled binary
+*.exe
+
+# Upload folder (runtime data)
+uploads/
+
+# Output files (runtime data)
+output.json
+
+# Go build cache
+*.test
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Brain/AI cache
+brain/

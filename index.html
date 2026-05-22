@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Eye - C2 Traffic Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: '#050505',
+                        panel: '#111111',
+                        neonRed: '#ef4444',
+                        neonYellow: '#eab308',
+                        neonGreen: '#22c55e',
+                        neonred: '#dc2626',
+                    },
+                    fontFamily: {
+                        mono: ['"Fira Code"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Fira Code', monospace;
+            background-color: #050505;
+            color: #cbd5e1;
+            overflow-x: hidden;
+        }
+
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+        }
+
+        .glow-red {
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+            border-color: #ef4444;
+        }
+
+        .glow-yellow {
+            box-shadow: 0 0 15px rgba(234, 179, 8, 0.5);
+            border-color: #eab308;
+        }
+
+        .glow-green {
+            box-shadow: 0 0 15px rgba(34, 197, 94, 0.5);
+            border-color: #22c55e;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left-color: #dc2626;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .blinking-eye {
+            animation: blink-eye 4s infinite;
+        }
+
+        @keyframes blink-eye {
+
+            0%,
+            90%,
+            100% {
+                transform: scaleY(1);
+            }
+
+            95% {
+                transform: scaleY(0.1);
+            }
+        }
+
+        .blink {
+            animation: blinker 1.5s linear infinite;
+        }
+
+        @keyframes blinker {
+            50% {
+                opacity: 0;
+            }
+        }
+
+        #investigationSidebar {
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar-open {
+            transform: translateX(0);
+        }
+
+        .sidebar-closed {
+            transform: translateX(100%);
+        }
+
+        .gauge-container {
+            position: relative;
+            width: 120px;
+            height: 60px;
+            overflow: hidden;
+            border-radius: 120px 120px 0 0;
+            background: #222222;
+            margin: 0 auto;
+        }
+
+        .gauge-fill {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            width: 120px;
+            height: 120px;
+            background: conic-gradient(from 180deg at 50% 50%, #22c55e 0deg, #eab308 90deg, #ef4444 180deg);
+            border-radius: 50%;
+            transform-origin: center top;
+            transition: transform 1s ease-out;
+        }
+
+        .gauge-cover {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90px;
+            height: 45px;
+            background: #111111;
+            border-radius: 90px 90px 0 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            padding-bottom: 5px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background: #222222;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: #dc2626;
+            box-shadow: 0 0 10px #dc2626;
+            transition: width 0.6s ease-out;
+        }
+
+        /* Resizable Sidebar */
+        #investigationSidebar {
+            min-width: 320px;
+            max-width: 80vw;
+            user-select: none;
+        }
+        #sidebarResizer {
+            width: 5px;
+            cursor: ew-resize;
+            background: transparent;
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            transition: background 0.2s;
+            z-index: 10;
+        }
+        #sidebarResizer:hover, #sidebarResizer.dragging {
+            background: rgba(220,38,38,0.5);
+        }
+
+        /* Progress steps */
+        .progress-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.75rem;
+            color: #6b7280;
+            transition: color 0.3s;
+        }
+        .progress-step.active { color: #f87171; }
+        .progress-step.done { color: #22c55e; }
+        .step-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #374151;
+            flex-shrink: 0;
+            transition: background 0.3s;
+        }
+        .progress-step.active .step-dot { background: #ef4444; box-shadow: 0 0 8px #ef4444; animation: pulse 1s infinite; }
+        .progress-step.done .step-dot { background: #22c55e; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    
+
+        /* Demon Eye UI Upgrade */
+        .demon-eye-wrap{width:56px;height:56px;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 0 14px rgba(220,38,38,.75));}
+        .demon-eye{position:relative;width:50px;height:30px;transform:rotate(45deg);border-radius:0 100% 0 100%;overflow:hidden;background:radial-gradient(circle at center,rgba(127,0,0,.95),rgba(20,0,0,1) 62%,#020202 100%);border:1.5px solid rgba(248,113,113,.95);box-shadow:0 0 10px rgba(239,68,68,.9),0 0 24px rgba(220,38,38,.55),inset 0 0 13px rgba(255,0,0,.35);animation:demonEyeFloat 3.2s ease-in-out infinite;}
+        .eye-inner{position:absolute;inset:4px;border-radius:50%;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;background:radial-gradient(circle,#250000 0%,#080000 66%,#000 100%);}
+        .iris{position:absolute;width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffd1d1 0%,#ff4b4b 14%,#dc2626 38%,#7f0000 68%,#1a0000 100%);box-shadow:0 0 12px rgba(255,0,0,.95),0 0 26px rgba(220,38,38,.55),inset 0 0 8px rgba(255,255,255,.12);animation:demonIrisPulse 1.8s ease-in-out infinite;}
+        .pupil{position:absolute;width:5px;height:20px;border-radius:999px;background:#020202;box-shadow:0 0 7px #000;}
+        .eye-glow{position:absolute;width:40px;height:40px;border-radius:50%;background:radial-gradient(circle,rgba(255,0,0,.25),transparent 70%);filter:blur(4px);animation:demonGlowPulse 2s ease-in-out infinite;}
+        .eye-shine{position:absolute;top:6px;left:17px;width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.95);filter:blur(.5px);}
+        .eyelid{position:absolute;left:-10%;width:120%;height:55%;background:linear-gradient(to bottom,#050505,rgba(45,0,0,.98));z-index:5;transition:transform .14s ease-in-out;}
+        .eyelid-top{top:-38%;border-bottom:1px solid rgba(239,68,68,.55);transform-origin:center bottom;}
+        .eyelid-bottom{bottom:-38%;border-top:1px solid rgba(239,68,68,.55);transform-origin:center top;}
+        .demon-eye.blink .eyelid-top{transform:translateY(72%);}
+        .demon-eye.blink .eyelid-bottom{transform:translateY(-72%);}
+        @keyframes demonIrisPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+        @keyframes demonGlowPulse{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:1;transform:scale(1.12)}}
+        @keyframes demonEyeFloat{0%,100%{transform:rotate(45deg) translateY(0)}50%{transform:rotate(45deg) translateY(-2px)}}
+
+    </style>
+</head>
+
+<body class="bg-dark bg-grid min-h-screen p-6">
+
+    <header class="flex justify-between items-center border-b border-neutral-700 pb-4 mb-8">
+        <div class="flex items-center space-x-3 group">
+
+            <div class="demon-eye-wrap" aria-label="The Eye scanner">
+                <div class="demon-eye" id="demonEye"><div class="eye-inner"><div class="iris"></div><div class="pupil"></div><div class="eye-glow"></div><div class="eye-shine"></div></div><div class="eyelid eyelid-top"></div><div class="eyelid eyelid-bottom"></div></div>
+            </div>
+            <h1 class="text-3xl font-black text-white tracking-widest">THE <span class="text-neonred">EYE</span></h1>
+           
+            <!-- Engine Status Badge -->
+            <div id="engineBadge"
+                class="hidden text-xs uppercase font-bold tracking-widest px-2.5 py-1 rounded border ml-2"></div>
+            <!-- Groq API Status Badge -->
+            <div id="groqStatusBadge"
+                class="hidden text-xs uppercase font-bold tracking-widest px-2.5 py-1 rounded border border-neutral-700 bg-neutral-900/60 text-neutral-400 font-mono ml-2 flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse"></span>
+                Groq Req Left: <span id="groqRemainingVal" class="text-red-400 font-bold">N/A</span>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="relative flex items-center">
+                <input type="password" id="groqApiKeyInput" placeholder="Groq API Key (Opsional)" class="bg-neutral-900 border border-neutral-700 text-neutral-300 text-xs rounded-l px-3 py-2 w-48 focus:outline-none focus:border-red-500 font-mono">
+                <button id="toggleApiKey" class="bg-neutral-800 border-y border-r border-neutral-700 hover:bg-neutral-700 text-neutral-400 px-2 py-2 rounded-r transition-colors" title="Toggle Visibility">
+                    <svg id="eyeIconOpen" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                    <svg id="eyeIconClosed" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21"></path></svg>
+                </button>
+            </div>
+            <!-- Engine Selector -->
+            <div class="flex items-center gap-1">
+                <select id="engineSelect" class="bg-neutral-900 border border-neutral-700 text-neutral-300 text-xs rounded px-2 py-2 focus:outline-none focus:border-red-500 font-mono" title="Pilih AI engine untuk analisis">
+                    <option value="auto">AUTO (Colab→Groq→Local)</option>
+                    <option value="groq">Groq (Cloud)</option>
+                    <option value="ollama">Ollama (Local AI)</option>
+                    <option value="local">Local Heuristic Only</option>
+                </select>
+                <div id="ollamaOptions" class="hidden flex items-center gap-1">
+                    <input type="text" id="ollamaUrl" placeholder="http://localhost:11434" value="http://localhost:11434" class="bg-neutral-900 border border-neutral-700 text-neutral-300 text-xs rounded px-2 py-2 w-44 focus:outline-none focus:border-red-500 font-mono">
+                    <select id="ollamaModelSelect" class="bg-neutral-900 border border-neutral-700 text-neutral-300 text-xs rounded px-2 py-2 w-28 focus:outline-none focus:border-red-500 font-mono">
+                        <option value="llama3">llama3</option>
+                    </select>
+                    <button onclick="loadOllamaModels()" class="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-400 text-xs px-2 py-2 rounded transition-colors" title="Refresh model list">↻</button>
+                </div>
+            </div>
+            <button id="btnExport" class="hidden bg-red-900/60 hover:bg-red-800 text-white font-bold py-2 px-4 rounded border border-red-700 transition-all items-center gap-2 text-sm uppercase tracking-wider" onclick="exportReport()">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                EXPORT
+            </button>
+            <label for="fileInput" id="btnSmallUpload" data-upload-native="1"
+                class="bg-neutral-800 hover:bg-neutral-700 text-white font-bold py-2 px-4 rounded border border-neutral-700 transition-all flex items-center gap-2 text-sm uppercase tracking-wider"><!-- upload-native-label-fallback -->
+                <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12">
+                    </path>
+                </svg>
+                PILIH FILE PCAP
+            </label>
+        </div>
+    </header>
+
+    <!-- Drag & Drop PCAP Zone -->
+    <div id="dropZone"
+        class="border-2 border-dashed border-red-500/50 bg-panel/20 hover:bg-panel/40 rounded-lg p-8 mb-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3">
+        <svg class="w-12 h-12 text-red-400 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+        </svg>
+        <div>
+            <p class="text-white font-bold">DRAG & DROP FILE PCAP ATAU PCAPNG DI SINI</p>
+            <p class="text-xs text-neutral-400 mt-1">Atau klik untuk memilih file dari komputer secara manual</p>
+        </div>
+        <input type="file" id="fileInput" class="hidden" accept=".pcap,.pcapng" />
+    </div>
+
+    <div id="errorBanner"
+        class="hidden bg-red-900/50 border border-red-500 text-red-300 p-4 rounded-lg mb-6 flex items-start gap-3">
+        <svg class="w-6 h-6 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+            </path>
+        </svg>
+        <div>
+            <h4 class="font-bold">SYSTEM ERROR</h4>
+            <p id="errorMessage" class="text-sm mt-1">Terjadi kesalahan.</p>
+        </div>
+    </div>
+
+    <div id="warningBanner"
+        class="hidden bg-yellow-900/50 border border-yellow-500 text-yellow-300 p-4 rounded-lg mb-6 flex items-start gap-3">
+        <svg class="w-6 h-6 text-yellow-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <div>
+            <h4 class="font-bold">SYSTEM WARNING</h4>
+            <p id="warningMessage" class="text-sm mt-1">Peringatan sistem.</p>
+        </div>
+    </div>
+
+    <div id="mainContent" class="hidden">
+        <!-- Scanned File & Malware Summary Banner -->
+        <div id="scanBanner" class="mb-4 p-4 bg-neutral-900 border border-neutral-700 rounded-lg flex flex-wrap items-start gap-4">
+            <div class="flex-1 min-w-0">
+                <p class="text-xs text-neutral-500 uppercase tracking-widest mb-1">File yang Dianalisis</p>
+                <p id="scannedFileName" class="text-sm text-white font-mono truncate">-</p>
+            </div>
+            <div class="flex-1 min-w-0">
+                <p class="text-xs text-neutral-500 uppercase tracking-widest mb-1">Malware Terdeteksi</p>
+                <div id="malwareSummaryBadges" class="flex flex-wrap gap-1 mt-1"></div>
+            </div>
+            <div class="text-right">
+                <p class="text-xs text-neutral-500 uppercase tracking-widest mb-1">Engine</p>
+                <p id="engineLabel" class="text-xs font-bold text-red-400 font-mono">-</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div id="statusPanel"
+                class="bg-panel border-2 rounded-lg p-6 flex flex-col items-center justify-center text-center transition-all">
+                <h2 class="text-sm text-neutral-400 uppercase tracking-widest mb-2">Status Keseluruhan</h2>
+                <div id="statusValue" class="text-4xl font-extrabold tracking-widest text-white">-</div>
+            </div>
+            <div class="bg-panel border border-neutral-700 rounded-lg p-6 flex flex-col justify-center items-center">
+                <h2 class="text-sm text-neutral-400 uppercase tracking-widest mb-2">Total Node Dipantau</h2>
+                <div id="totalIp" class="text-5xl font-light text-red-400">0</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div
+                class="lg:col-span-2 bg-panel border border-neutral-700 rounded-lg p-6 overflow-hidden flex flex-col h-[500px]">
+                <h3
+                    class="text-lg font-bold text-white mb-4 border-b border-neutral-600 pb-2 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 6h16M4 10h16M4 14h16M4 18h16"></path>
+                        </svg>
+                        LOG DETEKSI ANOMALI
+                    </div>
+                    <span class="text-xs text-red-400 font-normal animate-pulse">Klik untuk analisis detail log
+                        CTI</span>
+                </h3>
+                <div class="overflow-y-auto flex-1 pr-2 custom-scrollbar">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="sticky top-0 bg-panel text-neutral-300 text-xs uppercase z-10">
+                            <tr>
+                                <th class="p-3 border-b border-neutral-600">Source <span class="text-neutral-500 cursor-help" title="Alamat IP asal pengirim paket">ⓘ</span></th>
+                                <th class="p-3 border-b border-neutral-600">Destination <span class="text-neutral-500 cursor-help" title="Alamat IP tujuan atau domain penerima paket">ⓘ</span></th>
+                                <th class="p-3 border-b border-neutral-600">Level <span class="text-neutral-500 cursor-help" title="Tingkat keparahan ancaman yang dideteksi">ⓘ</span></th>
+                                <th class="p-3 border-b border-neutral-600">Platform <span class="text-neutral-500 cursor-help" title="Estimasi OS berdasarkan nilai TTL">ⓘ</span></th>
+                                <th class="p-3 border-b border-neutral-600">Behavior Heuristic <span class="text-neutral-500 cursor-help" title="Pola ancaman/malware yang dikenali oleh engine">ⓘ</span></th>
+                                <th class="p-3 border-b border-neutral-600">Score <span class="text-neutral-500 cursor-help" title="Skor probabilitas kejahatan (0-100)">ⓘ</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="text-sm text-neutral-400 divide-y divide-neutral-700/50">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-panel border border-neutral-700 rounded-lg p-6 flex flex-col h-[500px]">
+                <h3 class="text-lg font-bold text-white mb-4 border-b border-neutral-600 pb-2">DISTRIBUSI ANCAMAN</h3>
+                <div class="flex-1 w-full flex items-center justify-center relative">
+                    <canvas id="threatChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Investigation Sidebar (Resizable) -->
+    <div id="investigationSidebar"
+        class="sidebar-closed fixed top-0 right-0 h-full bg-panel border-l border-neutral-600 shadow-2xl z-50 flex flex-col" style="width:550px">
+        <!-- Drag Handle -->
+        <div id="sidebarResizer" title="Drag to resize"></div>
+        <div class="p-4 border-b border-neutral-600 flex justify-between items-center bg-dark/50">
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                <svg class="w-5 h-5 text-neonred" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z">
+                    </path>
+                </svg>
+               Laporan Log Analisis 
+            </h2>
+            <button id="closeSidebar" class="text-neutral-400 hover:text-white p-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
+
+            <div class="grid grid-cols-2 gap-4">
+                <!-- Malware Info -->
+                <div class="text-center bg-dark/30 border border-neutral-700 rounded-lg p-4">
+                    <p class="text-xs text-neutral-400 mb-2 uppercase tracking-widest">Identifikasi Malware</p>
+                    <div id="modalMalware"
+                        class="inline-block px-3 py-1 font-bold text-lg rounded tracking-widest uppercase truncate max-w-full">
+                        UNKNOWN
+                    </div>
+                </div>
+
+                <!-- Platform Identity -->
+                <div class="text-center bg-dark/30 border border-neutral-700 rounded-lg p-4">
+                    <p class="text-xs text-neutral-400 mb-2 uppercase tracking-widest">Platform Target</p>
+                    <div class="flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5 text-neutral-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                            </path>
+                        </svg>
+                        <span id="modalPlatform" class="text-white font-bold tracking-widest">UNKNOWN</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Behavioral Telemetry & Violations -->
+            <div id="behavioralCard" class="hidden bg-red-950/20 border border-red-500/30 p-4 rounded-lg">
+                <p class="text-xs text-red-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <svg class="w-4 h-4 text-red-500 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    BEHAVIORAL HEURISTICS ALERT
+                </p>
+                <ul id="behavioralViolations" class="text-xs text-red-300 list-disc list-inside space-y-1">
+                </ul>
+            </div>
+
+            <!-- Confidence Score Bar -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-xs text-neutral-400 uppercase tracking-widest">Confidence Score</span>
+                    <span id="modalConfidenceText" class="text-xs text-red-400 font-bold">0%</span>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="modalConfidenceFill" class="progress-bar-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <!-- Header Metrics Table -->
+            <div>
+                <p class="text-xs text-neutral-400 mb-2 uppercase tracking-widest border-b border-neutral-700 pb-1">Detailed
+                    Header Metrics</p>
+                <div class="grid grid-cols-3 gap-2 text-xs text-center mt-2">
+                    <div class="bg-neutral-800/80 p-3 rounded border border-neutral-700">
+                        <p class="text-neutral-500 mb-1">Avg TTL</p>
+                        <p id="metricTTL" class="text-white font-mono font-bold text-base">0</p>
+                    </div>
+                    <div class="bg-neutral-800/80 p-3 rounded border border-neutral-700">
+                        <p class="text-neutral-500 mb-1">Dst Port</p>
+                        <p id="metricPort" class="text-white font-mono font-bold text-base">-</p>
+                    </div>
+                    <div class="bg-neutral-800/80 p-3 rounded border border-neutral-700">
+                        <p class="text-neutral-500 mb-1">TCP Flags</p>
+                        <p id="metricFlags" class="text-white font-mono font-bold text-base truncate" title="NONE">NONE
+                        </p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-xs text-center mt-2">
+                    <div class="bg-neutral-800/80 p-2 rounded border border-neutral-700">
+                        <p class="text-neutral-500">Packet Count: <span id="metricPkt"
+                                class="text-white font-mono font-bold ml-1">0</span></p>
+                    </div>
+                    <div class="bg-neutral-800/80 p-2 rounded border border-neutral-700">
+                        <p class="text-neutral-500">Duration: <span id="metricDuration"
+                                class="text-white font-mono font-bold ml-1">0s</span></p>
+                    </div>
+                    <div class="bg-neutral-800/80 p-2 rounded border border-neutral-700">
+                        <p class="text-neutral-500">Avg Interval: <span id="metricInterval"
+                                class="text-white font-mono font-bold ml-1">0.0s</span></p>
+                    </div>
+                    <div class="bg-neutral-800/80 p-2 rounded border border-neutral-700">
+                        <p class="text-neutral-500">Bytes/Pkt: <span id="metricBytesPerPkt"
+                                class="text-white font-mono font-bold ml-1">0</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step-by-Step Forensic Reasoning -->
+            <div>
+                <p
+                    class="text-xs text-neutral-400 mb-2 uppercase tracking-widest border-b border-neutral-700 pb-1 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z">
+                        </path>
+                    </svg>
+                    Step-by-Step Forensic Reasoning
+                </p>
+                <div class="bg-dark/50 p-4 rounded-lg border border-neutral-700">
+                    <p id="modalReasoning" class="text-sm text-red-100 leading-relaxed text-justify">
+                        ...
+                    </p>
+                </div>
+            </div>
+
+            <!-- Severity Gauge & MITRE -->
+            <div class="grid grid-cols-2 gap-4">
+                <div
+                    class="bg-dark/30 p-4 rounded-lg border border-neutral-700 text-center relative flex flex-col items-center">
+                    <p class="text-xs text-neutral-400 mb-4 uppercase tracking-widest">Severity</p>
+                    <div class="gauge-container scale-75 origin-top mt-2">
+                        <div id="gaugeFill" class="gauge-fill" style="transform: rotate(-90deg);"></div>
+                        <div class="gauge-cover" id="gaugeText">0</div>
+                    </div>
+                </div>
+                <div class="bg-dark/30 p-4 rounded-lg border border-neutral-700 flex flex-col justify-center">
+                    <p class="text-xs text-neutral-400 mb-1 uppercase tracking-widest">MITRE ATT&CK</p>
+                    <p id="modalMitre" class="text-sm font-bold text-neutral-200 mt-1">Unmapped</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay"
+        class="fixed inset-0 bg-black/85 backdrop-blur-sm hidden flex-col items-center justify-center z-50 gap-6">
+        <div class="blinking-eye w-16 h-16 flex items-center justify-center bg-red-900/40 rounded-full border border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.6)] mb-2">
+            <div class="w-6 h-6 bg-red-400 rounded-full shadow-[0_0_15px_#fff]"></div>
+        </div>
+        <div class="text-red-400 text-base font-bold tracking-widest" id="loadingStatusText">INITIALIZING...</div>
+        <!-- Progress bar -->
+        <div class="w-72">
+            <div class="flex justify-between text-xs text-neutral-500 mb-1">
+                <span id="loadingStageLabel">Starting...</span>
+                <span id="loadingPct">0%</span>
+            </div>
+            <div class="h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                <div id="loadingBar" class="h-full bg-red-600 rounded-full transition-all duration-700 shadow-[0_0_8px_#dc2626]" style="width:0%"></div>
+            </div>
+        </div>
+        <!-- Step checklist -->
+        <div class="flex flex-col gap-2 mt-2" id="loadingSteps">
+            <div class="progress-step" id="step0"><div class="step-dot"></div>Upload & validasi file PCAP</div>
+            <div class="progress-step" id="step1"><div class="step-dot"></div>Ekstraksi paket jaringan</div>
+            <div class="progress-step" id="step2"><div class="step-dot"></div>Pre-processing & statistical analysis</div>
+            <div class="progress-step" id="step3"><div class="step-dot"></div>Behavioral heuristics analysis</div>
+            <div class="progress-step" id="step4"><div class="step-dot"></div>Korelasi AI </div>
+            <div class="progress-step" id="step5"><div class="step-dot"></div>Finalisasi & render laporan</div>
+        </div>
+    </div>
+
+    <script>
+        // Resolusi Cerdas API Base URL
+        // Jika dibuka langsung via file:// atau Live Server port 3001, ia akan menembak port 3000.
+        // Jika disajikan langsung dari Node Server di port 3000, ia menggunakan relative path.
+        const API_BASE = (window.location.protocol === 'file:' || window.location.port !== '3000')
+            ? 'http://localhost:3000'
+            : '';
+
+        const btnSmallUpload = document.getElementById('btnSmallUpload');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const mainContent = document.getElementById('mainContent');
+        const statusPanel = document.getElementById('statusPanel');
+        const statusValue = document.getElementById('statusValue');
+        const totalIp = document.getElementById('totalIp');
+        const tableBody = document.getElementById('tableBody');
+
+        const errorBanner = document.getElementById('errorBanner');
+        const errorMessage = document.getElementById('errorMessage');
+        const warningBanner = document.getElementById('warningBanner');
+        const warningMessage = document.getElementById('warningMessage');
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        const investigationSidebar = document.getElementById('investigationSidebar');
+        const closeSidebar = document.getElementById('closeSidebar');
+        const modalMalware = document.getElementById('modalMalware');
+        const modalPlatform = document.getElementById('modalPlatform');
+        const modalConfidenceText = document.getElementById('modalConfidenceText');
+        const modalConfidenceFill = document.getElementById('modalConfidenceFill');
+        const gaugeFill = document.getElementById('gaugeFill');
+        const gaugeText = document.getElementById('gaugeText');
+
+        const metricPkt = document.getElementById('metricPkt');
+        const metricInterval = document.getElementById('metricInterval');
+        const metricTTL = document.getElementById('metricTTL');
+        const metricPort = document.getElementById('metricPort');
+        const metricFlags = document.getElementById('metricFlags');
+        const metricDuration = document.getElementById('metricDuration');
+        const metricBytesPerPkt = document.getElementById('metricBytesPerPkt');
+
+        const modalReasoning = document.getElementById('modalReasoning');
+        const modalMitre = document.getElementById('modalMitre');
+
+        let chartInstance = null;
+        let globalData = [];
+
+        function hideBanners() {
+            errorBanner.classList.add('hidden');
+            warningBanner.classList.add('hidden');
+        }
+
+        function showError(message) {
+            errorMessage.innerText = message;
+            errorBanner.classList.remove('hidden');
+            mainContent.classList.add('hidden');
+        }
+
+        closeSidebar.addEventListener('click', () => {
+            investigationSidebar.classList.remove('sidebar-open');
+            investigationSidebar.classList.add('sidebar-closed');
+        });
+
+        // Mapping Data Forensik dengan Akurat ke Sidebar
+        function openSidebar(index) {
+            const item = globalData[index];
+            if (!item) return;
+
+            const intel = item.intel_report || {};
+            const raw = item.raw_metrics || {};
+
+            // Mengatasi bug data kosong/mapping
+            metricPkt.innerText = raw.packet_count !== undefined ? raw.packet_count : '-';
+            metricInterval.innerText = raw.avg_interval !== undefined ? parseFloat(raw.avg_interval).toFixed(2) + 's' : '-';
+            metricTTL.innerText = raw.avg_ttl !== undefined ? parseFloat(raw.avg_ttl).toFixed(1) : '-';
+            metricPort.innerText = raw.dst_port || '-';
+            metricFlags.innerText = raw.tcp_flags || 'NONE';
+            metricFlags.title = raw.tcp_flags || 'NONE';
+            metricDuration.innerText = raw.duration_seconds !== undefined ? parseFloat(raw.duration_seconds).toFixed(1) + 's' : '-';
+            metricBytesPerPkt.innerText = raw.bytes_per_packet !== undefined ? raw.bytes_per_packet : '-';
+
+            modalMalware.innerText = intel.malware_family || 'UNKNOWN';
+            modalPlatform.innerText = intel.platform_detected || 'UNKNOWN';
+            modalReasoning.innerText = intel.logic_reasoning || 'Logika analisis tidak disediakan.';
+            modalMitre.innerText = intel.mitre_attack || 'Unmapped';
+
+            const behavioralCard = document.getElementById('behavioralCard');
+            const behavioralViolations = document.getElementById('behavioralViolations');
+
+            if (intel.behavior_violations && intel.behavior_violations.length > 0 && intel.behavior_violations[0] !== "Tidak ada pelanggaran protokol.") {
+                behavioralViolations.innerHTML = "";
+                intel.behavior_violations.forEach(v => {
+                    const li = document.createElement('li');
+                    li.innerText = v;
+                    behavioralViolations.appendChild(li);
+                });
+                behavioralCard.classList.remove('hidden');
+            } else {
+                behavioralCard.classList.add('hidden');
+            }
+
+            const confScore = parseInt(intel.confidence_score) || 0;
+            const validConf = Math.max(0, Math.min(100, confScore));
+            modalConfidenceText.innerText = validConf + '%';
+            modalConfidenceFill.style.width = validConf + '%';
+
+            const score = parseInt(intel.severity_score) || 0;
+            const validScore = Math.max(0, Math.min(100, score));
+            gaugeText.innerText = validScore;
+            const degree = (validScore / 100 * 180) - 90;
+            gaugeFill.style.transform = `rotate(${degree}deg)`;
+
+            const level = item.tingkat_ancaman ? item.tingkat_ancaman.toUpperCase() : "SAFE";
+            modalMalware.className = "inline-block px-3 py-1 border font-bold text-lg rounded tracking-widest uppercase truncate max-w-full";
+            if (level === "CRITICAL") {
+                modalMalware.classList.add('bg-red-900/30', 'text-red-400', 'border-red-500/50');
+            } else if (level === "SUSPICIOUS") {
+                modalMalware.classList.add('bg-yellow-900/30', 'text-yellow-400', 'border-yellow-500/50');
+            } else {
+                modalMalware.classList.add('bg-green-900/30', 'text-green-400', 'border-green-500/50');
+            }
+
+            investigationSidebar.classList.remove('sidebar-closed');
+            investigationSidebar.classList.add('sidebar-open');
+        }
+
+        tableBody.addEventListener('click', (e) => {
+            const tr = e.target.closest('tr[data-index]');
+            if (tr) {
+                const index = tr.getAttribute('data-index');
+                openSidebar(index);
+            }
+        });
+
+        // Trigger Drag & Drop file input
+        dropZone.addEventListener('click', () => fileInput.click());
+        btnSmallUpload.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-red-400', 'bg-panel/50');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-red-400', 'bg-panel/50');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-red-400', 'bg-panel/50');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileUpload(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileUpload(e.target.files[0]);
+            }
+        });
+
+        // Proses unggah file PCAP ke server secara REAL
+        async function handleFileUpload(file) {
+            hideBanners();
+            investigationSidebar.classList.remove('sidebar-open');
+            investigationSidebar.classList.add('sidebar-closed');
+            loadingOverlay.classList.remove('hidden');
+            loadingOverlay.classList.add('flex');
+
+            // ── Progress Stage Controller ──
+            const stages = [
+                { id: 'step0', pct: 10, label: 'Upload & validasi file PCAP...' },
+                { id: 'step1', pct: 28, label: 'Go Engine mengekstrak paket...' },
+                { id: 'step2', pct: 45, label: 'Statistical pre-processing...' },
+                { id: 'step3', pct: 62, label: 'Behavioral heuristics engine berjalan...' },
+                { id: 'step4', pct: 82, label: 'Korelasi AI & threat intel...' },
+                { id: 'step5', pct: 97, label: 'Finalisasi laporan...' }
+            ];
+            // Reset steps
+            stages.forEach(s => {
+                const el = document.getElementById(s.id);
+                el.classList.remove('active','done');
+            });
+            document.getElementById('loadingBar').style.width = '0%';
+            document.getElementById('loadingPct').textContent = '0%';
+            document.getElementById('loadingStageLabel').textContent = 'Memulai...';
+            document.getElementById('loadingStatusText').textContent = `MEMINDAI: ${file.name}`;
+
+            let stageIndex = 0;
+            const totalEstimatedMs = 40000; // ~40 detik estimasi total
+            const stageTimings = [500, 3000, 6000, 10000, 16000, 35000];
+
+            function advanceStage(idx) {
+                if (idx > 0) {
+                    const prev = document.getElementById(stages[idx-1].id);
+                    prev.classList.remove('active');
+                    prev.classList.add('done');
+                }
+                if (idx < stages.length) {
+                    const cur = document.getElementById(stages[idx].id);
+                    cur.classList.add('active');
+                    document.getElementById('loadingBar').style.width = stages[idx].pct + '%';
+                    document.getElementById('loadingPct').textContent = stages[idx].pct + '%';
+                    document.getElementById('loadingStageLabel').textContent = stages[idx].label;
+                }
+            }
+
+            const stageTimers = [];
+            stages.forEach((s, i) => {
+                const t = setTimeout(() => advanceStage(i), stageTimings[i]);
+                stageTimers.push(t);
+            });
+
+            function completeProgress() {
+                stageTimers.forEach(t => clearTimeout(t));
+                stages.forEach(s => {
+                    const el = document.getElementById(s.id);
+                    el.classList.remove('active');
+                    el.classList.add('done');
+                });
+                document.getElementById('loadingBar').style.width = '100%';
+                document.getElementById('loadingPct').textContent = '100%';
+                document.getElementById('loadingStageLabel').textContent = 'Selesai!';
+            }
+
+            const formData = new FormData();
+            formData.append('pcapFile', file);
+
+            try {
+                const headers = {};
+                const groqKey = document.getElementById('groqApiKeyInput').value.trim();
+                if (groqKey) headers['x-groq-key'] = groqKey;
+
+                const selectedEngine = document.getElementById('engineSelect').value;
+                headers['x-engine'] = selectedEngine;
+
+                if (selectedEngine === 'ollama') {
+                    headers['x-ollama-url'] = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434';
+                    headers['x-ollama-model'] = document.getElementById('ollamaModelSelect').value || 'llama3';
+                }
+
+                const response = await fetch(`${API_BASE}/api/upload`, {
+                    method: 'POST',
+                    body: formData,
+                    headers: headers
+                });
+                const data = await response.json();
+
+                completeProgress();
+                setTimeout(() => {
+                    loadingOverlay.classList.add('hidden');
+                    loadingOverlay.classList.remove('flex');
+
+                    if (!response.ok) {
+                        showError(data.error || `Upload Error ${response.status}`);
+                        return;
+                    }
+
+                    if (data.warning) {
+                        warningMessage.innerText = data.warning;
+                        warningBanner.classList.remove('hidden');
+                    }
+
+                    renderDashboard(data);
+                }, 400); // short delay so 100% is visible
+
+            } catch (error) {
+                stageTimers.forEach(t => clearTimeout(t));
+                console.error('Upload error:', error);
+                loadingOverlay.classList.add('hidden');
+                loadingOverlay.classList.remove('flex');
+                showError('Gagal mengunggah file PCAP. Pastikan server Node.js menyala.');
+            }
+        }
+
+        // SCAN DEFAULT dihapus atas permintaan user. Pemilihan file kini bersifat mandiri.
+
+        function renderDashboard(data) {
+            mainContent.classList.remove('hidden');
+            globalData = data.temuan || [];
+
+            // Sembunyikan dropZone raksasa dan tampilkan tombol upload kecil di header
+            dropZone.classList.add('hidden');
+            btnSmallUpload.classList.remove('hidden');
+            document.getElementById('btnExport').classList.remove('hidden');
+            document.getElementById('btnExport').classList.add('flex');
+
+            // --- Filename & Malware Summary Banner ---
+            document.getElementById('scannedFileName').textContent = data.scanned_file || 'N/A';
+            document.getElementById('engineLabel').textContent = data.engine_used || '-';
+
+            const badgesContainer = document.getElementById('malwareSummaryBadges');
+            badgesContainer.innerHTML = '';
+            const families = data.threat_summary?.malware_families_detected || [];
+            if (families.length === 0) {
+                badgesContainer.innerHTML = '<span class="text-xs text-green-400 font-mono">Tidak ada malware terdeteksi</span>';
+            } else {
+                families.forEach(f => {
+                    const b = document.createElement('span');
+                    b.textContent = f;
+                    b.className = 'text-xs px-2 py-0.5 rounded-full bg-red-900/50 text-red-300 border border-red-700/60 font-mono';
+                    badgesContainer.appendChild(b);
+                });
+            }
+
+            // Render Engine Badge
+            const engineBadge = document.getElementById('engineBadge');
+            engineBadge.classList.remove('hidden', 'bg-green-900/30', 'text-green-400', 'border-green-500/50', 'bg-yellow-900/30', 'text-yellow-400', 'border-yellow-500/50', 'bg-purple-900/30', 'text-purple-400', 'border-purple-500/50');
+
+            if (data.engine_used === "REMOTE_BRAIN") {
+                engineBadge.innerText = "ENGINE: REMOTE BRAIN (GPU)";
+                engineBadge.classList.add('bg-green-900/30', 'text-green-400', 'border-green-500/50');
+                engineBadge.classList.remove('hidden');
+            } else if (data.engine_used === "CLOUD_FALLBACK") {
+                engineBadge.innerText = "ENGINE: CLOUD FALLBACK (GROQ)";
+                engineBadge.classList.add('bg-yellow-900/30', 'text-yellow-400', 'border-yellow-500/50');
+                engineBadge.classList.remove('hidden');
+            } else if (data.engine_used === "LOCAL_FAST_ENGINE") {
+                engineBadge.innerText = "ENGINE: LOCAL DETERMINISTIC (SPEED)";
+                engineBadge.classList.add('bg-purple-900/30', 'text-purple-400', 'border-purple-500/50');
+                engineBadge.classList.remove('hidden');
+            }
+
+            // Tampilkan Sisa Kuota Groq jika disediakan oleh API
+            const groqStatusBadge = document.getElementById('groqStatusBadge');
+            const groqRemainingVal = document.getElementById('groqRemainingVal');
+            if (data.groq_status && data.groq_status.remaining_requests && data.groq_status.remaining_requests !== "N/A") {
+                groqRemainingVal.innerText = data.groq_status.remaining_requests;
+                groqStatusBadge.classList.remove('hidden');
+            } else {
+                groqStatusBadge.classList.add('hidden');
+            }
+
+            // Hitung status keseluruhan dari data temuan aktual secara dinamis (Hardening UI)
+            let calculatedStatus = "SAFE";
+            let hasCriticalFlow = false;
+            let hasSuspiciousFlow = false;
+
+            globalData.forEach(item => {
+                const lvl = item.tingkat_ancaman ? item.tingkat_ancaman.toUpperCase() : "SAFE";
+                if (lvl === "CRITICAL") hasCriticalFlow = true;
+                else if (lvl === "SUSPICIOUS") hasSuspiciousFlow = true;
+            });
+
+            if (hasCriticalFlow) {
+                calculatedStatus = "CRITICAL";
+            } else if (hasSuspiciousFlow) {
+                calculatedStatus = "SUSPICIOUS";
+            }
+
+            statusValue.innerText = calculatedStatus;
+            totalIp.innerText = data.total_ip_dianalisis || 0;
+
+            statusPanel.className = "bg-panel border-2 rounded-lg p-6 flex flex-col items-center justify-center text-center transition-all";
+            statusValue.classList.remove('text-neonRed', 'text-neonYellow', 'text-neonGreen', 'blink');
+
+            if (calculatedStatus === "CRITICAL") {
+                statusPanel.classList.add('glow-red');
+                statusValue.classList.add('text-neonRed', 'blink');
+            } else if (calculatedStatus === "SUSPICIOUS") {
+                statusPanel.classList.add('glow-yellow');
+                statusValue.classList.add('text-neonYellow');
+            } else {
+                statusPanel.classList.add('glow-green');
+                statusValue.classList.add('text-neonGreen');
+            }
+
+            tableBody.innerHTML = "";
+            let countCritical = 0;
+            let countSuspicious = 0;
+            let countSafe = 0;
+
+            if (globalData.length > 0) {
+                globalData.forEach((item, index) => {
+                    const level = item.tingkat_ancaman ? item.tingkat_ancaman.toUpperCase() : "SAFE";
+                    const platform = item.intel_report ? item.intel_report.platform_detected : "UNKNOWN";
+                    const malware = item.intel_report ? item.intel_report.malware_family : "UNKNOWN";
+                    const score = item.intel_report ? (item.intel_report.severity_score || 0) : 0;
+
+                    let badgeClass = "bg-neutral-700 text-neutral-300";
+                    if (level === "CRITICAL") {
+                        badgeClass = "bg-red-900/50 text-red-400 border border-red-500/50";
+                        countCritical++;
+                    } else if (level === "SUSPICIOUS") {
+                        badgeClass = "bg-yellow-900/50 text-yellow-400 border border-yellow-500/50";
+                        countSuspicious++;
+                    } else {
+                        badgeClass = "bg-green-900/50 text-green-400 border border-green-500/50";
+                        countSafe++;
+                    }
+
+                    let scoreBadgeClass = "bg-green-950/40 text-green-400 border-green-500/30";
+                    if (score >= 75) {
+                        scoreBadgeClass = "bg-red-950/40 text-red-400 border-red-500/30";
+                    } else if (score >= 40) {
+                        scoreBadgeClass = "bg-yellow-950/40 text-yellow-400 border-yellow-500/30";
+                    }
+
+                    const behaviorFlags = item.intel_report?.behavior_flags ? item.intel_report.behavior_flags.join(", ") : malware;
+
+                    const srcInfo = `Source IP: ${item.ip_sumber || '-'}\nTotal Packets: ${item.raw_metrics?.packet_count || 0}\nDuration: ${item.raw_metrics?.duration_seconds || 0}s`;
+                    const dstInfo = `Target IP: ${item.ip_tujuan || '-'}\nPort: ${item.raw_metrics?.dst_port || '-'}\nTLS SNI: ${item.intel_report?.tls_sni || 'N/A'}\nDNS Anomaly: ${item.intel_report?.dns_anomaly ? 'Yes' : 'No'}`;
+
+                    const row = `
+                        <tr class="hover:bg-neutral-700/50 transition-colors cursor-pointer border-b border-neutral-700/50" data-index="${index}">
+                            <td class="p-3 font-mono text-white" title="${srcInfo}">${item.ip_sumber || '-'} <span class="text-[10px] text-neutral-500 cursor-help ml-1">ⓘ</span></td>
+                            <td class="p-3 font-mono text-red-400" title="${dstInfo}">${item.ip_tujuan || '-'} <span class="text-[10px] text-neutral-500 cursor-help ml-1">ⓘ</span></td>
+                            <td class="p-3"><span class="px-2 py-1 text-xs rounded ${badgeClass}">${level}</span></td>
+                            <td class="p-3 text-xs text-neutral-300 font-bold uppercase">${platform}</td>
+                            <td class="p-3 text-xs text-neutral-400 font-semibold">${behaviorFlags}</td>
+                            <td class="p-3 text-xs font-bold"><span class="px-2.5 py-0.5 rounded-full border ${scoreBadgeClass}">${score}/100</span></td>
+                        </tr>
+                    `;
+                    tableBody.innerHTML += row;
+                });
+            } else {
+                tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-neutral-500">Tidak ada data temuan.</td></tr>`;
+            }
+
+            renderChart(countCritical, countSuspicious, countSafe);
+        }
+
+        function renderChart(critical, suspicious, safe) {
+            const ctx = document.getElementById('threatChart').getContext('2d');
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['CRITICAL', 'SUSPICIOUS', 'SAFE'],
+                    datasets: [{
+                        label: 'Jumlah Koneksi',
+                        data: [critical, suspicious, safe],
+                        backgroundColor: [
+                            'rgba(239, 68, 68, 0.8)',
+                            'rgba(234, 179, 8, 0.8)',
+                            'rgba(34, 197, 94, 0.8)'
+                        ],
+                        borderColor: [
+                            'rgb(239, 68, 68)',
+                            'rgb(234, 179, 8)',
+                            'rgb(34, 197, 94)'
+                        ],
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleFont: { family: "'Fira Code', monospace" },
+                            bodyFont: { family: "'Fira Code', monospace" },
+                            borderColor: '#222222',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: {
+                                color: '#94a3b8',
+                                font: { family: "'Fira Code', monospace" },
+                                stepSize: 1
+                            }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: {
+                                color: '#cbd5e1',
+                                font: { family: "'Fira Code', monospace", weight: 'bold' }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Groq API Key UI Persistence & Toggle
+        const groqApiKeyInput = document.getElementById('groqApiKeyInput');
+        const toggleApiKey = document.getElementById('toggleApiKey');
+        const eyeIconOpen = document.getElementById('eyeIconOpen');
+        const eyeIconClosed = document.getElementById('eyeIconClosed');
+
+        // Load API key from local storage if exists
+        const savedKey = localStorage.getItem('groqApiKey');
+        if (savedKey) {
+            groqApiKeyInput.value = savedKey;
+        }
+
+        // Save key to local storage on change
+        groqApiKeyInput.addEventListener('input', () => {
+            localStorage.setItem('groqApiKey', groqApiKeyInput.value.trim());
+        });
+
+        // Toggle visibility
+        toggleApiKey.addEventListener('click', () => {
+            if (groqApiKeyInput.type === 'password') {
+                groqApiKeyInput.type = 'text';
+                eyeIconOpen.style.display = 'block';
+                eyeIconClosed.style.display = 'none';
+            } else {
+                groqApiKeyInput.type = 'password';
+                eyeIconOpen.style.display = 'none';
+                eyeIconClosed.style.display = 'block';
+            }
+        });
+
+        // Engine Selector: show/hide Ollama options
+        const engineSelect = document.getElementById('engineSelect');
+        const ollamaOptions = document.getElementById('ollamaOptions');
+        engineSelect.addEventListener('change', () => {
+            if (engineSelect.value === 'ollama') {
+                ollamaOptions.classList.remove('hidden');
+                loadOllamaModels();
+            } else {
+                ollamaOptions.classList.add('hidden');
+            }
+        });
+
+        // Load Ollama models from local server
+        async function loadOllamaModels() {
+            const url = document.getElementById('ollamaUrl').value.trim() || 'http://localhost:11434';
+            const sel = document.getElementById('ollamaModelSelect');
+            sel.innerHTML = '<option value="">Loading...</option>';
+            try {
+                const resp = await fetch(`${API_BASE}/api/ollama-models?url=${encodeURIComponent(url)}`);
+                const data = await resp.json();
+                if (data.status === 'ok' && data.models.length > 0) {
+                    sel.innerHTML = data.models.map(m => `<option value="${m}">${m}</option>`).join('');
+                } else {
+                    sel.innerHTML = '<option value="llama3">llama3 (default)</option>';
+                    console.warn('Ollama tidak bisa di-reach atau tidak ada model:', data.error);
+                }
+            } catch (e) {
+                sel.innerHTML = '<option value="llama3">llama3 (default)</option>';
+            }
+        }
+
+        // Fungsi Export Laporan
+        function exportReport() {
+            if (!globalData || globalData.length === 0) {
+                alert("Tidak ada data untuk diekspor.");
+                return;
+            }
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(globalData, null, 2));
+            const dlAnchorElem = document.createElement('a');
+            dlAnchorElem.setAttribute("href", dataStr);
+            const fname = document.getElementById('scannedFileName').textContent.replace(/\.[^.]+$/, '') || 'report';
+            dlAnchorElem.setAttribute("download", `TheEye_${fname}_${new Date().toISOString().slice(0,10)}.json`);
+            document.body.appendChild(dlAnchorElem);
+            dlAnchorElem.click();
+            document.body.removeChild(dlAnchorElem);
+        }
+
+        // ── Resizable Sidebar ──
+        const sidebarResizer = document.getElementById('sidebarResizer');
+        const sidebar = document.getElementById('investigationSidebar');
+        let isResizing = false;
+
+        sidebarResizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            sidebarResizer.classList.add('dragging');
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const newWidth = window.innerWidth - e.clientX;
+            const minW = 320;
+            const maxW = window.innerWidth * 0.8;
+            sidebar.style.width = Math.min(maxW, Math.max(minW, newWidth)) + 'px';
+        });
+
+        document.addEventListener('mouseup', () => {
+            isResizing = false;
+            sidebarResizer.classList.remove('dragging');
+        });
+
+    </script>
+
+<script>
+// upload chooser hardening
+(function(){
+  function bindUploadChooser(){
+    const input=document.getElementById('fileInput');
+    const small=document.getElementById('btnSmallUpload');
+    const drop=document.getElementById('dropZone');
+    if(!input)return;
+    input.removeAttribute('disabled');
+    input.accept='.pcap,.pcapng';
+    input.style.pointerEvents='auto';
+    function openPicker(e){
+      if(e){e.preventDefault();e.stopPropagation();}
+      try{input.click();}catch(err){console.error('[upload-fix] gagal membuka file picker',err);}
+    }
+    if(small && small.dataset.uploadFix!=='1'){
+      small.dataset.uploadFix='1';
+      small.setAttribute('role','button');
+      small.setAttribute('tabindex','0');
+      small.addEventListener('click',openPicker,true);
+      small.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){openPicker(e);}},true);
+    }
+    if(drop && drop.dataset.uploadFix!=='1'){
+      drop.dataset.uploadFix='1';
+      drop.addEventListener('click',openPicker,true);
+    }
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindUploadChooser);else bindUploadChooser();
+  setTimeout(bindUploadChooser,500);
+})();
+</script>
+
+<script>
+(function(){const eye=document.getElementById('demonEye');if(!eye)return;function blink(d){eye.classList.add('blink');setTimeout(()=>eye.classList.remove('blink'),d||160)}function loop(){setTimeout(()=>{blink(120+Math.random()*110);if(Math.random()>.68)setTimeout(()=>blink(110),170);loop()},1300+Math.random()*2600)}setTimeout(()=>blink(150),700);loop();})();
+</script>
+</body>
+
+</html>

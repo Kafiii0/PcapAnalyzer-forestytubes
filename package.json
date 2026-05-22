@@ -1,0 +1,25 @@
+{
+  "name": "tubes-foresty",
+  "version": "1.0.0",
+  "description": "",
+  "main": "adaptive-start.js",
+  "scripts": {
+    "start": "node adaptive-start.js",
+    "train": "node train-baseline.js",
+    "train:output": "node train-baseline.js output.json",
+    "test": "node -c adaptive-start.js && node -c train-baseline.js && node -c core/adaptive-engine.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "ipaddr.js": "^2.4.0",
+    "mathjs": "^15.2.0",
+    "multer": "^2.1.1",
+    "tldjs": "^2.3.2",
+    "validator": "^13.15.35"
+  }
+}
