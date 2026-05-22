@@ -126,6 +126,7 @@ class BaselineEngine {
         profileType: entityProfile ? 'entity' : (domainProfile ? 'domain' : (asnProfile ? 'asn' : 'none'))
       };
     }
+    
 
     const flags = [];
     const violations = [];
