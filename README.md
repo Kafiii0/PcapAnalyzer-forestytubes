@@ -10,7 +10,7 @@ Fokus deteksi yang didukung meliputi beaconing C2, anomali SMTP/FTP/HTTPS outbou
 - Extractor Go untuk mengubah PCAP menjadi `output.json` flow network.
 - Dashboard web untuk melihat status keseluruhan, daftar temuan, metrics, MITRE mapping, dan rekomendasi tindakan.
 - Engine selector:
-  - `AUTO`: Remote Brain -> Codex CLI -> Groq -> Local.
+  - `AUTO`: Google Collab -> Codex CLI -> Groq -> Local.
   - `Codex`: OpenAI Codex CLI lokal.
   - `Groq`: API cloud Groq.
   - `Ollama`: LLM lokal via Ollama.
