@@ -265,7 +265,8 @@
             <!-- Engine Selector -->
             <div class="flex items-center gap-1">
                 <select id="engineSelect" class="bg-neutral-900 border border-neutral-700 text-neutral-300 text-xs rounded px-2 py-2 focus:outline-none focus:border-red-500 font-mono" title="Pilih AI engine untuk analisis">
-                    <option value="auto">AUTO (Colab→Groq→Local)</option>
+                    <option value="auto">AUTO (Colab→Codex→Groq→Local)</option>
+                    <option value="codex">Codex (OpenAI)</option>
                     <option value="groq">Groq (Cloud)</option>
                     <option value="ollama">Ollama (Local AI)</option>
                     <option value="local">Local Heuristic Only</option>
@@ -277,13 +278,23 @@
                     </select>
                     <button onclick="loadOllamaModels()" class="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-400 text-xs px-2 py-2 rounded transition-colors" title="Refresh model list">↻</button>
                 </div>
+                <div id="codexOptions" class="hidden flex items-center gap-1">
+                    <select id="codexModelSelect" class="bg-neutral-900 border border-neutral-700 text-neutral-300 text-xs rounded px-2 py-2 w-32 focus:outline-none focus:border-red-500 font-mono" title="Model Codex">
+                        <option value="gpt-5.5">gpt-5.5</option>
+                        <option value="gpt-5.4">gpt-5.4</option>
+                        <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+                        <option value="gpt-5.3-codex">gpt-5.3-codex</option>
+                        <option value="gpt-5.2">gpt-5.2</option>
+                    </select>
+                    <span id="codexStatusDot" class="w-2 h-2 rounded-full bg-neutral-600" title="Codex status"></span>
+                </div>
             </div>
             <button id="btnExport" class="hidden bg-red-900/60 hover:bg-red-800 text-white font-bold py-2 px-4 rounded border border-red-700 transition-all items-center gap-2 text-sm uppercase tracking-wider" onclick="exportReport()">
                 <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
                 EXPORT
             </button>
             <label for="fileInput" id="btnSmallUpload" data-upload-native="1"
-                class="bg-neutral-800 hover:bg-neutral-700 text-white font-bold py-2 px-4 rounded border border-neutral-700 transition-all flex items-center gap-2 text-sm uppercase tracking-wider"><!-- upload-native-label-fallback -->
+                class="bg-neutral-800 hover:bg-neutral-700 text-white font-bold py-2 px-4 rounded border border-neutral-700 transition-all flex items-center gap-2 text-sm uppercase tracking-wider cursor-pointer select-none"><!-- upload-native-label-fallback -->
                 <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12">
@@ -293,6 +304,8 @@
             </label>
         </div>
     </header>
+
+    <input type="file" id="fileInput" class="fixed top-0 left-0 w-px h-px opacity-0" accept=".pcap,.pcapng" tabindex="-1" />
 
     <!-- Drag & Drop PCAP Zone -->
     <div id="dropZone"
@@ -305,7 +318,6 @@
             <p class="text-white font-bold">DRAG & DROP FILE PCAP ATAU PCAPNG DI SINI</p>
             <p class="text-xs text-neutral-400 mt-1">Atau klik untuk memilih file dari komputer secara manual</p>
         </div>
-        <input type="file" id="fileInput" class="hidden" accept=".pcap,.pcapng" />
     </div>
 
     <div id="errorBanner"
@@ -713,8 +725,20 @@
         });
 
         // Trigger Drag & Drop file input
-        dropZone.addEventListener('click', () => fileInput.click());
-        btnSmallUpload.addEventListener('click', () => fileInput.click());
+        function openPcapPicker(e) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            fileInput.value = '';
+            fileInput.click();
+        }
+
+        dropZone.addEventListener('click', openPcapPicker);
+        btnSmallUpload.addEventListener('click', openPcapPicker);
+        btnSmallUpload.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') openPcapPicker(e);
+        });
 
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
@@ -820,6 +844,10 @@
                     headers['x-ollama-model'] = document.getElementById('ollamaModelSelect').value || 'llama3';
                 }
 
+                if (selectedEngine === 'codex' || selectedEngine === 'auto') {
+                    headers['x-codex-model'] = document.getElementById('codexModelSelect').value || 'gpt-5.5';
+                }
+
                 const response = await fetch(`${API_BASE}/api/upload`, {
                     method: 'POST',
                     body: formData,
@@ -892,9 +920,17 @@
                 engineBadge.innerText = "ENGINE: REMOTE BRAIN (GPU)";
                 engineBadge.classList.add('bg-green-900/30', 'text-green-400', 'border-green-500/50');
                 engineBadge.classList.remove('hidden');
+            } else if (data.engine_used === "CODEX_CLI") {
+                engineBadge.innerText = "ENGINE: CODEX CLI (OPENAI)";
+                engineBadge.classList.add('bg-green-900/30', 'text-green-400', 'border-green-500/50');
+                engineBadge.classList.remove('hidden');
             } else if (data.engine_used === "CLOUD_FALLBACK") {
                 engineBadge.innerText = "ENGINE: CLOUD FALLBACK (GROQ)";
                 engineBadge.classList.add('bg-yellow-900/30', 'text-yellow-400', 'border-yellow-500/50');
+                engineBadge.classList.remove('hidden');
+            } else if (data.engine_used === "OLLAMA_LOCAL") {
+                engineBadge.innerText = "ENGINE: OLLAMA (LOCAL AI)";
+                engineBadge.classList.add('bg-purple-900/30', 'text-purple-400', 'border-purple-500/50');
                 engineBadge.classList.remove('hidden');
             } else if (data.engine_used === "LOCAL_FAST_ENGINE") {
                 engineBadge.innerText = "ENGINE: LOCAL DETERMINISTIC (SPEED)";
@@ -1098,12 +1134,23 @@
         const engineSelect = document.getElementById('engineSelect');
         const ollamaOptions = document.getElementById('ollamaOptions');
         engineSelect.addEventListener('change', () => {
+            const codexOptions = document.getElementById('codexOptions');
             if (engineSelect.value === 'ollama') {
                 ollamaOptions.classList.remove('hidden');
+                codexOptions.classList.add('hidden');
                 loadOllamaModels();
+            } else if (engineSelect.value === 'codex') {
+                codexOptions.classList.remove('hidden');
+                ollamaOptions.classList.add('hidden');
+                checkCodexStatus();
             } else {
                 ollamaOptions.classList.add('hidden');
+                codexOptions.classList.add('hidden');
             }
+        });
+
+        document.getElementById('codexModelSelect').addEventListener('change', () => {
+            if (engineSelect.value === 'codex') checkCodexStatus();
         });
 
         // Load Ollama models from local server
@@ -1122,6 +1169,28 @@
                 }
             } catch (e) {
                 sel.innerHTML = '<option value="llama3">llama3 (default)</option>';
+            }
+        }
+
+        // Check Codex CLI status
+        async function checkCodexStatus() {
+            const dot = document.getElementById('codexStatusDot');
+            const model = document.getElementById('codexModelSelect')?.value || 'gpt-5.5';
+            dot.className = 'w-2 h-2 rounded-full bg-yellow-400 animate-pulse';
+            dot.title = `Checking Codex exec (${model})...`;
+            try {
+                const resp = await fetch(`${API_BASE}/api/codex-status?probe=1&model=${encodeURIComponent(model)}`);
+                const data = await resp.json();
+                if (data.status === 'ok' && data.exec_status === 'ok') {
+                    dot.className = 'w-2 h-2 rounded-full bg-green-400 animate-pulse';
+                    dot.title = `Codex exec OK (${data.model || model}): ${data.version}`;
+                } else {
+                    dot.className = 'w-2 h-2 rounded-full bg-red-400';
+                    dot.title = data.error || 'Codex exec failed';
+                }
+            } catch (e) {
+                dot.className = 'w-2 h-2 rounded-full bg-red-400';
+                dot.title = 'Codex check failed';
             }
         }
 
@@ -1180,6 +1249,7 @@
     input.style.pointerEvents='auto';
     function openPicker(e){
       if(e){e.preventDefault();e.stopPropagation();}
+      input.value='';
       try{input.click();}catch(err){console.error('[upload-fix] gagal membuka file picker',err);}
     }
     if(small && small.dataset.uploadFix!=='1'){
