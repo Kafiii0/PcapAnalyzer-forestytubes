@@ -2,9 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs').promises;
 const path = require('path');
-const { execFile } = require('child_process');
+const { execFile, exec, spawn } = require('child_process');
 const util = require('util');
 const execFileAsync = util.promisify(execFile);
+const execAsync = util.promisify(exec);
 const multer = require('multer');
 const dns = require('dns').promises;
 const tld = require('tldjs');
@@ -97,6 +98,101 @@ WAJIB balas HANYA dengan format JSON murni:
     } 
   ] 
 }`;
+
+const CODEX_DEFAULT_MODEL = process.env.CODEX_DEFAULT_MODEL || 'gpt-5.5';
+const CODEX_MODEL_PATTERN = /^[A-Za-z0-9._:-]{1,80}$/;
+
+function normalizeCodexModel(rawModel) {
+    const model = String(Array.isArray(rawModel) ? rawModel[0] : (rawModel || '')).trim();
+    return CODEX_MODEL_PATTERN.test(model) ? model : CODEX_DEFAULT_MODEL;
+}
+
+function extractJsonPayload(rawText) {
+    let text = String(rawText || '').trim();
+    if (text.includes('```json')) {
+        text = text.split('```json')[1].split('```')[0];
+    } else if (text.includes('```')) {
+        text = text.split('```')[1].split('```')[0];
+    }
+
+    const jsonStart = text.indexOf('{');
+    const jsonEnd = text.lastIndexOf('}');
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        text = text.substring(jsonStart, jsonEnd + 1);
+    }
+    return text;
+}
+
+function runCodexCli(prompt, model, options = {}) {
+    const selectedModel = normalizeCodexModel(model);
+    const timeout = options.timeout || 120000;
+    const maxBuffer = options.maxBuffer || 10 * 1024 * 1024;
+    const args = ['exec', '-m', selectedModel, '--skip-git-repo-check', '--ephemeral', '-'];
+
+    return new Promise((resolve, reject) => {
+        const child = spawn('codex', args, {
+            cwd: __dirname,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: process.env
+        });
+
+        let stdout = '';
+        let stderr = '';
+        let outputSize = 0;
+        let settled = false;
+        let timer;
+
+        const finish = (err, result) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            if (err) reject(err);
+            else resolve(result);
+        };
+
+        const appendOutput = (target, chunk) => {
+            const value = chunk.toString();
+            outputSize += Buffer.byteLength(value);
+            if (outputSize > maxBuffer) {
+                child.kill('SIGTERM');
+                finish(new Error(`Codex CLI output exceeded ${maxBuffer} bytes`));
+                return target;
+            }
+            return target + value;
+        };
+
+        timer = setTimeout(() => {
+            child.kill('SIGTERM');
+            finish(new Error(`Codex CLI timeout after ${timeout}ms`));
+        }, timeout);
+
+        child.stdout.on('data', chunk => {
+            stdout = appendOutput(stdout, chunk);
+        });
+
+        child.stderr.on('data', chunk => {
+            stderr = appendOutput(stderr, chunk);
+        });
+
+        child.on('error', err => finish(err));
+        child.on('close', code => {
+            if (settled) return;
+            if (code === 0) {
+                finish(null, { stdout, stderr, model: selectedModel });
+                return;
+            }
+            const details = (stderr || stdout || '').trim() || 'no output';
+            finish(new Error(`Codex CLI exited with code ${code}: ${details}`));
+        });
+
+        try {
+            child.stdin.end(prompt, 'utf-8');
+        } catch (err) {
+            child.kill('SIGTERM');
+            finish(err);
+        }
+    });
+}
 
 
 async function loadIOCKnowledgeBase() {
@@ -1008,10 +1104,12 @@ async function processAndAnalyze(pcapFilePath, res, req) {
 
         let aiResponseObject;
         let engineUsed = "REMOTE_BRAIN";
+        let codexLastError = null;
 
         // Cek apakah klien meminta engine tertentu
-        const preferredEngine = req?.headers['x-engine'] || 'auto'; // 'auto' | 'groq' | 'ollama' | 'local'
+        const preferredEngine = req?.headers['x-engine'] || 'auto'; // 'auto' | 'groq' | 'ollama' | 'local' | 'codex'
         const ollamaModel = req?.headers['x-ollama-model'] || 'llama3';
+        const codexModel = normalizeCodexModel(req?.headers['x-codex-model'] || CODEX_DEFAULT_MODEL);
         const ollamaUrl = req?.headers['x-ollama-url'] || 'http://localhost:11434';
 
         // Hanya hubungi AI jika ada data yang perlu ditanyakan
@@ -1081,12 +1179,29 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                     aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
                 }
 
+            // --- CODEX ENGINE (OpenAI Codex CLI) ---
+            } else if (preferredEngine === 'codex') {
+                engineUsed = 'CODEX_CLI';
+                try {
+                    console.log(`[*] Mengirimkan request ke Codex CLI (model: ${codexModel})...`);
+                    const codexPrompt = `${SYSTEM_PROMPT}\n\n=== RAG THREAT INTELLIGENCE ===\n${knowledgeBaseContent}\n\nData:\n${dataToAnalyze}\n\nBALAS HANYA DENGAN JSON MURNI, TANPA MARKDOWN FENCES.`;
+                    const { stdout: codexStdout } = await runCodexCli(codexPrompt, codexModel);
+                    const codexText = extractJsonPayload(codexStdout);
+                    aiResponseObject = JSON.parse(codexText);
+                    console.log(`[+] Codex CLI (${codexModel}) selesai menganalisis.`);
+                } catch (codexErr) {
+                    codexLastError = codexErr.message;
+                    console.error(`[ERROR] Codex CLI gagal: ${codexErr.message}. Fallback ke Local Engine.`);
+                    engineUsed = 'LOCAL_FAST_ENGINE';
+                    aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
+                }
+
             // --- LOCAL ENGINE (force local, no AI) ---
             } else if (preferredEngine === 'local') {
                 engineUsed = 'LOCAL_FAST_ENGINE';
                 aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
 
-            // --- AUTO ENGINE (Remote Brain → Groq → Local) original flow ---
+            // --- AUTO ENGINE (Remote Brain → Codex → Groq → Local) original flow ---
             } else {
             // 4. Request ke REMOTE BRAIN (Google Colab) dengan sistem FAILOVER/FALLBACK (Stage 3)
             try {
@@ -1131,7 +1246,25 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                 aiResponseObject = JSON.parse(responseText.trim());
                 console.log("[+] Berhasil menganalisis menggunakan REMOTE BRAIN (Colab).");
             } catch (remoteErr) {
-                console.warn(`[WARNING] Remote Brain (Colab) gagal/timeout (${remoteErr.message}). Melakukan failover ke Groq API...`);
+                console.warn(`[WARNING] Remote Brain (Colab) gagal/timeout (${remoteErr.message}). Mencoba Codex CLI...`);
+
+                // --- AUTO FAILOVER: Try Codex CLI before Groq ---
+                let codexAutoSuccess = false;
+                try {
+                    engineUsed = 'CODEX_CLI';
+                    console.log(`[*] AUTO: Mencoba Codex CLI (model: ${codexModel})...`);
+                    const codexAutoPrompt = `${SYSTEM_PROMPT}\n\n=== RAG THREAT INTELLIGENCE ===\n${knowledgeBaseContent}\n\nData:\n${dataToAnalyze}\n\nBALAS HANYA DENGAN JSON MURNI, TANPA MARKDOWN FENCES.`;
+                    const { stdout: codexAutoOut } = await runCodexCli(codexAutoPrompt, codexModel);
+                    const codexAutoText = extractJsonPayload(codexAutoOut);
+                    aiResponseObject = JSON.parse(codexAutoText);
+                    codexAutoSuccess = true;
+                    console.log('[+] AUTO: Codex CLI berhasil menganalisis.');
+                } catch (codexAutoErr) {
+                    codexLastError = codexAutoErr.message;
+                    console.warn(`[WARNING] Codex CLI gagal (${codexAutoErr.message}). Failover ke Groq API...`);
+                }
+
+                if (!codexAutoSuccess) {
                 engineUsed = "CLOUD_FALLBACK";
 
                 try {
@@ -1188,7 +1321,8 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                     engineUsed = "LOCAL_FAST_ENGINE";
                     aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
                 }
-            } // end auto engine's try/catch (Groq fallback)
+                } // end if (!codexAutoSuccess) — Groq fallback block
+            } // end auto engine's try/catch (Remote Brain fallback chain)
             } // end else AUTO engine block
         } // end if (flowsForAI.length > 0)
 
@@ -1353,6 +1487,10 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             };
         }
 
+        if (codexLastError) {
+            aiResponseObject.codex_error = codexLastError;
+        }
+
         if (isTruncated) {
             aiResponseObject.warning = "Data dipotong hingga 200 flow pertama untuk efisiensi sistem.";
         }
@@ -1432,15 +1570,69 @@ app.get('/api/analyze', async (req, res) => {
     await processAndAnalyze('uji_coba.pcap', res, req);
 });
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+    let codexInstalled = false;
+    try {
+        await execFileAsync('codex', ['--version'], { timeout: 2000 });
+        codexInstalled = true;
+    } catch (err) {
+        codexInstalled = false;
+    }
+
     res.json({
         status: "ok",
-        version: "2.0.0",
+        version: "2.1.0",
         engine: "The Eye C2 Hunter",
         groq_configured: !!process.env.GROQ_API_KEY,
+        codex_configured: codexInstalled,
+        codex_exec_probe: "/api/codex-status?probe=1",
         remote_brain: REMOTE_BRAIN_URL,
         timestamp: new Date().toISOString()
     });
+});
+
+// --- CODEX: Check codex-cli availability ---
+app.get('/api/codex-status', async (req, res) => {
+    try {
+        const { stdout, stderr } = await execFileAsync('codex', ['--version'], { timeout: 5000 });
+        const version = `${stdout}${stderr ? `\n${stderr}` : ''}`.trim();
+        const shouldProbeExec = ['1', 'true', 'exec'].includes(String(req.query.probe || '').toLowerCase());
+
+        if (!shouldProbeExec) {
+            res.json({
+                status: 'ok',
+                version,
+                exec_status: 'not_probed',
+                note: 'codex --version berhasil; gunakan /api/codex-status?probe=1 untuk uji codex exec penuh.'
+            });
+            return;
+        }
+
+        try {
+            const probeModel = normalizeCodexModel(req.query.model || CODEX_DEFAULT_MODEL);
+            const { stdout: probeStdout } = await runCodexCli(
+                'Return only this JSON object and no markdown: {"codex_probe":true}',
+                probeModel,
+                { timeout: 30000, maxBuffer: 1024 * 1024 }
+            );
+            JSON.parse(extractJsonPayload(probeStdout));
+            res.json({ status: 'ok', version, exec_status: 'ok', model: probeModel });
+        } catch (probeErr) {
+            res.json({
+                status: 'error',
+                version,
+                exec_status: 'error',
+                error: `codex exec failed: ${probeErr.message}`
+            });
+        }
+    } catch (err) {
+        res.json({
+            status: 'error',
+            exec_status: 'unavailable',
+            error: 'codex-cli not installed or not in PATH',
+            detail: err.message
+        });
+    }
 });
 
 // --- OLLAMA: List available local models ---

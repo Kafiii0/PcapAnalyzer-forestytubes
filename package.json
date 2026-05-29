@@ -7,7 +7,7 @@
     "start": "node adaptive-start.js",
     "train": "node train-baseline.js",
     "train:output": "node train-baseline.js output.json",
-    "test": "node -c adaptive-start.js && node -c train-baseline.js && node -c core/adaptive-engine.js"
+    "test": "node -c server.js && node -c adaptive-start.js && node -c train-baseline.js && node -c core/adaptive-engine.js"
   },
   "keywords": [],
   "author": "",

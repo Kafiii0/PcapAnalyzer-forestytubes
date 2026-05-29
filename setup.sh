@@ -1,5 +1,7 @@
 #!/bin/bash
 
+APP_PORT="${PORT:-3000}"
+
 echo "[*] Mengecek dependensi Go..."
 if ! command -v go &> /dev/null; then
     echo "[ERROR] Go belum terinstall. Silakan install Go 1.22+ dari https://go.dev/dl/"
@@ -10,6 +12,14 @@ echo "[*] Mengecek dependensi Node.js..."
 if ! command -v node &> /dev/null; then
     echo "[ERROR] Node.js belum terinstall. Silakan install Node.js 18+ dari https://nodejs.org/"
     exit 1
+fi
+
+echo "[*] Menggunakan port ${APP_PORT}..."
+if command -v ss &> /dev/null; then
+    if ss -ltn | grep -Eq "[.:]${APP_PORT}[[:space:]]"; then
+        echo "[ERROR] Port ${APP_PORT} sedang dipakai. Hentikan proses lama dulu atau jalankan dengan PORT lain."
+        exit 1
+    fi
 fi
 
 echo "[*] Membangun extractor engine..."
@@ -28,9 +38,9 @@ fi
 
 echo "[*] Menjalankan Server Web The Eye..."
 if command -v xdg-open &> /dev/null; then
-    xdg-open http://localhost:3000 &
+    xdg-open "http://localhost:${APP_PORT}" &
 elif command -v open &> /dev/null; then
-    open http://localhost:3000 &
+    open "http://localhost:${APP_PORT}" &
 fi
 
-node server.js
+PORT="${APP_PORT}" node server.js

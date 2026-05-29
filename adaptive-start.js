@@ -59,6 +59,7 @@ const UPLOAD_FIX_JS = `
     input.style.pointerEvents='auto';
     function openPicker(e){
       if(e){e.preventDefault();e.stopPropagation();}
+      input.value='';
       try{input.click();}catch(err){console.error('[upload-fix] gagal membuka file picker',err);}
     }
     if(small && small.dataset.uploadFix!=='1'){
@@ -107,6 +108,18 @@ function patchIndexFile() {
     html = html.replace(
       /PILIH FILE PCAP\s*<\/button>/,
       'PILIH FILE PCAP\n            </label>'
+    );
+    changed = true;
+  }
+
+  if (!html.includes('id="fileInput" class="fixed top-0 left-0')) {
+    html = html.replace(
+      /\s*<input type="file" id="fileInput" class="hidden" accept="\.pcap,\.pcapng" \/>\s*/,
+      '\n'
+    );
+    html = html.replace(
+      '</header>',
+      '</header>\n\n    <input type="file" id="fileInput" class="fixed top-0 left-0 w-px h-px opacity-0" accept=".pcap,.pcapng" tabindex="-1" />'
     );
     changed = true;
   }
