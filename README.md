@@ -468,11 +468,3 @@ npm run train        # Training baseline dari output.json atau file argumen
 npm run train:output # Training baseline dari output.json
 npm test             # Validasi sintaks file utama
 ```
-
-## Catatan Keamanan
-
-- Jangan commit file PCAP sensitif.
-- Jangan commit API key atau token.
-- Jangan commit `node_modules/`.
-- Review isi `brain/knowledge/` jika berisi IOC atau informasi internal.
-- Untuk demo publik, gunakan dataset yang sudah disanitasi.
