@@ -1,6 +1,6 @@
 # PcapAnalyzer ForestyTubes
 
-PcapAnalyzer ForestyTubes adalah dashboard analisis PCAP/PCAPNG untuk threat hunting jaringan. Project ini mengekstrak flow dari file capture, memberi skor heuristik lokal, lalu dapat meminta bantuan engine AI seperti Codex CLI, Ollama lokal, Groq, atau fallback deterministic lokal.
+PcapAnalyzer adalah dashboard analisis PCAP/PCAPNG untuk threat hunting jaringan. Project ini mengekstrak flow dari file capture, memberi skor heuristik lokal, lalu dapat meminta bantuan engine AI seperti Codex CLI, Ollama lokal, Groq, atau fallback deterministic lokal.
 
 Fokus deteksi yang didukung meliputi beaconing C2, anomali SMTP/FTP/HTTPS outbound, multi-port C2, download payload mencurigakan, TLS SNI/DNS anomaly, dan pola traffic malware seperti stealer/RAT.
 
