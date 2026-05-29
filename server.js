@@ -408,11 +408,11 @@ function getMitreMapping(flags) {
 
 const sessionLog = {};
 
-// MEMORY LEAK FIX - TTL Cleanup setiap 10 menit
+
 setInterval(() => {
     const now = Date.now();
     for (const ip in sessionLog) {
-        // Hapus entry yang umurnya lebih dari 30 menit (1800000 ms)
+        
         if (now - sessionLog[ip].timestamp > 1800000) {
             delete sessionLog[ip];
         }
@@ -458,18 +458,18 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
     const hasTls = flow.has_tls_traffic || false;
     const sniList = flow.tls_sni_list ? Object.keys(flow.tls_sni_list) : [];
     
-    // Gunakan resolved domain atau fallback ke IP
+    
     const domain = flow.resolved_domain || dstIp;
     const mainDomain = tld.getDomain(domain) || domain;
 
-    // Klasifikasi IP menggunakan ipaddr.js
+    
     const srcType = checkIpType(srcIp);
     const dstType = checkIpType(dstIp);
 
-    // Dapatkan data statistik kelompok IP Sumber ini
+    
     const ipStats = statsMap[srcIp] || { stdDevInterval: 999, entropyBytes: 0.1 };
 
-    // Cek CDN Whitelist
+    
     const isTrustedCDN = isCDNorTrustedInfra(dstIp, domain);
     if (isTrustedCDN) {
         return {
@@ -481,7 +481,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         };
     }
 
-    // Pengecekan Microsoft Teams XMPP di port 5222
+    
     const isMicrosoftXMPP = port === 5222 && (
         domain.includes("microsoft") || 
         domain.includes("teams") ||
@@ -499,7 +499,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         };
     }
 
-    // --- CHECK IOC DYNAMIC DATABASE ---
+    
     const iocIps = iocDatabase?.ipSet || new Set();
     const iocDomains = iocDatabase?.domainSet || new Set();
 
@@ -518,10 +518,10 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         };
     }
 
-    // ── ENRICHMENT INTEGRATION ──
+    
     const enr = flow.enrichment || {};
 
-    // A. Auto-trust via ASN (Apple, Google, Microsoft, dll terdeteksi otomatis)
+    
     if (enr.auto_trusted) {
         return {
             score: 15,
@@ -533,7 +533,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         };
     }
 
-    // B. Auto-malicious via TI Feed (IOC live dari abuse.ch, ipsum, dll)
+    
     if (enr.ioc_feed_hit) {
         return {
             score: 100,
@@ -545,7 +545,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         };
     }
 
-    // C. HTTP malicious pattern boost
+    
     if (enr.http_score_boost > 0) {
         score += enr.http_score_boost;
         enr.http_malicious_patterns.forEach(m => {
@@ -554,7 +554,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         });
     }
 
-    // D. Cross-session beacon boost (deteksi C2 polling lintas sesi)
+    
     if (enr.cross_session_beacon) {
         const boost = Math.min(70, 30 + (enr.cross_session_count * 4));
         score += boost;
@@ -562,7 +562,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Session Aggregation: ${enr.cross_session_count} sesi terpisah ke IP yang sama dengan interval seragam (StdDev=${enr.cross_session_std_dev.toFixed(2)}s). Pola C2 task polling.`);
     }
 
-    // E. SNI trust discount (kurangi false positive)
+    
     if (enr.sni_trust_level === 'TRUSTED') {
         score = Math.max(15, score - 30);
     } else if (enr.sni_trust_level === 'PARTIAL') {
@@ -571,17 +571,17 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
 
     let isAutomatedC2 = false;
 
-    // --- PRE-COMPUTE: Jitter Ratio & IP Frequency ---
+    
     const stdDev = ipStats.stdDevInterval || 999;
     const jitterRatio = interval > 0 ? (stdDev / interval) : 999;
 
-    // Build IP frequency map from allFlows (O(n) once per call, negligible cost)
+    
     const ipFrequency = {};
     allFlows.forEach(f => {
         if (f.dst_ip) ipFrequency[f.dst_ip] = (ipFrequency[f.dst_ip] || 0) + 1;
     });
 
-    // --- HEURISTIK 1: SMTP OUTBOUND ANOMALY (Protocol Violation) ---
+    
     if ((port === 587 || port === 25 || port === 465) && bytes > 3000) {
         const isSuspiciousSMTPDomain = mainDomain === "exczx.com" || (!domain.includes("gmail") && !domain.includes("outlook") && !domain.includes("yahoo") && !domain.includes("google") && !domain.includes("microsoft") && !domain.includes("mailgun") && !domain.includes("sendgrid") && !domain.includes("ses.amazonaws") && !domain.includes("smtp.office365"));
         if (isSuspiciousSMTPDomain) {
@@ -595,7 +595,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         }
     }
 
-    // --- HEURISTIK 2: STEGANOGRAPHY PAYLOAD DETECTION (Cloudinary Anomaly) ---
+    
     const isCloudinary = mainDomain === "cloudinary.com" || mainDomain === "res.cloudinary.com" || dstIp === "104.21.41.172";
     if (isCloudinary && bytes > 200000 && ipStats.entropyBytes > 0.8) {
         score += 40;
@@ -603,20 +603,20 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Steganography Detection: Unduhan payload gambar terenkripsi berukuran besar (${(bytes/1024).toFixed(1)} KB) pada Cloudinary CDN.`);
     }
 
-    // --- HEURISTIK 3: STATEFUL INFECTION CHAIN (RAR -> JS -> C2) ---
+    
     if (!sessionLog[srcIp]) {
         sessionLog[srcIp] = { hasRar: false, hasJs: false, timestamp: Date.now() };
     }
 
-    // A. Deteksi RAR Download
+    
     if (bytes > 500000 && (port === 80 || port === 443) && (mainDomain === "lovestoblog.com" || mainDomain === "cloudinary.com")) {
         sessionLog[srcIp].hasRar = true;
     }
-    // B. Deteksi JS Download
+    
     if (sessionLog[srcIp].hasRar && bytes > 2000 && bytes < 80000 && (port === 80 || port === 443)) {
         sessionLog[srcIp].hasJs = true;
     }
-    // C. Koneksi C2 aktif ke IP/Port baru
+    
     if (sessionLog[srcIp].hasRar && sessionLog[srcIp].hasJs && port > 1024 && port !== 3000 && port !== 3001) {
         score += 60;
         flags.push("Infection Chain Active");
@@ -625,14 +625,14 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
 
     const duration = flow.duration_seconds || 0;
 
-    // --- HEURISTIK BARU: Persistent Non-Standard Port Connection ---
+    
     if (!RAT_STANDARD_PORTS.includes(port) && port < 10000 && packets > 30 && duration > 120 && dstType === "PUBLIC") {
         score += 65;
         flags.push("Persistent Non-Standard Port");
         violations.push(`RAT/Backdoor Indicator: Koneksi persisten ${duration.toFixed(1)}s ke port non-standard ${port} (${packets} paket). Pola ini konsisten dengan RAT, backdoor, atau reverse shell aktif.`);
     }
 
-    // --- HEURISTIK BARU: RAT Keepalive Pattern ---
+    
     const bytesPerPkt = packets > 0 ? (bytes / packets) : 0;
     if (bytesPerPkt > 0 && bytesPerPkt < 200 && packets > 40 && duration > 180 && !RAT_STANDARD_PORTS.includes(port) && dstType === "PUBLIC") {
         score += 45;
@@ -640,8 +640,8 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Keepalive Detection: Paket sangat kecil (${bytesPerPkt.toFixed(1)} bytes/pkt) dikirim terus-menerus selama ${duration.toFixed(1)}s. Pola ini umum pada RAT yang mempertahankan koneksi aktif ke C2.`);
     }
 
-    // --- HEURISTIK 4: BEACONING REGULARITY (Statistical Anomaly Detection) ---
-    // Jika standard deviation < 0.1, evaluasi berdasarkan rule beaconing
+    
+    
     if (ipStats.stdDevInterval < 0.1 && interval > 0 && packets > 20) {
         if (!isTrustedCDN && port !== 80 && port !== 443 && interval > 0.5 && duration > 60) {
             score = 100;
@@ -665,7 +665,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         }
     }
 
-    // Heuristik 5: Reverse Base64 Communication
+    
     if (port > 1024 && port < 10000 &&
         !RAT_STANDARD_PORTS.includes(port) &&
         tcpFlags.includes("PSH") && tcpFlags.includes("ACK") &&
@@ -674,12 +674,12 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         bytesPerPkt > 50 && bytesPerPkt < 1000 &&
         dstType === "PUBLIC" && !isTrustedCDN &&
         duration > 60) {
-        score += 35; // turunkan dari 40 ke 35
+        score += 35; 
         flags.push("Encrypted C2 Comm");
         violations.push(`Encrypted C2 Pattern: Port non-standard ${port}${portName ? ' ('+portName+')' : ''} dengan pola PSH|ACK reguler (${packets} paket, interval ${interval.toFixed(2)}s).`);
     }
 
-    // --- RULE 1: NjRAT / QuasarRAT Detection ---
+    
     const NJRAT_PORTS = new Set([1177, 5552, 3782, 4782, 1234]);
     if (NJRAT_PORTS.has(port) && dstType === "PUBLIC" && !isTrustedCDN) {
         score += 75;
@@ -687,7 +687,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Known RAT Port: Port ${port} adalah signature NjRAT/QuasarRAT. Bytes/pkt=${bytesPerPkt.toFixed(0)}.`);
     }
 
-    // --- RULE 2: AsyncRAT / SectopRAT Detection ---
+    
     const ASYNC_PORTS = new Set([6606, 7707, 8808, 4449, 6677, 9000]);
     if (ASYNC_PORTS.has(port) && dstType === "PUBLIC" && !isTrustedCDN && packets > 15) {
         score += 70;
@@ -695,14 +695,14 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`AsyncRAT Signature: Port ${port} dengan ${packets} paket. C# RAT pattern terdeteksi.`);
     }
 
-    // --- RULE 3: RedLine / AgentTesla FTP Exfil ---
+    
     if (port === 21 && dstType === "PUBLIC" && bytes > 10000) {
         score += 65;
         flags.push("FTP Credential Exfil");
         violations.push(`FTP Outbound Anomaly: Transfer ${(bytes/1024).toFixed(0)}KB via FTP ke IP publik. RedLine/AgentTesla pattern.`);
     }
 
-    // --- RULE 4: LummaC2 / Stealer via HTTPS ---
+    
     if (port === 443 && !isTrustedCDN && dstType === "PUBLIC" &&
         duration < 30 && bytes > 50000 && packets < 200) {
         score += 50;
@@ -710,7 +710,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Stealer Exfil Pattern: Transfer ${(bytes/1024).toFixed(0)}KB via HTTPS hanya dalam ${duration.toFixed(1)}s ke non-CDN IP. Pola LummaC2/RedLine exfiltration.`);
     }
 
-    // --- RULE 5: Cobalt Strike Beacon ---
+    
     if (port === 443 && !isTrustedCDN && dstType === "PUBLIC" &&
         stdDev < 0.3 && interval > 10 && interval < 120 &&
         packets > 20 && duration > 300 &&
@@ -720,14 +720,14 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Cobalt Strike Pattern: HTTPS beacon reguler (interval=${interval.toFixed(1)}s, StdDev=${stdDev.toFixed(3)}s). Jitter sangat rendah.`);
     }
 
-    // --- RULE 6: Emotet / Multi-C2 Pattern ---
+    
     if (flow.multi_port_same_ip && dstType === "PUBLIC" && !isTrustedCDN) {
         score += 40;
         flags.push("Multi-Port C2 Pattern");
         violations.push(`Multi-Port Anomaly: Koneksi ke banyak port pada IP yang sama. Pola Emotet/loader module.`);
     }
 
-    // --- RULE 7: DCRat / Generic RAT via semi-standard port ---
+    
     const DCRAT_PORTS = new Set([5000, 5001, 8888, 9999, 1337, 31337, 4444, 4445]);
     if (DCRAT_PORTS.has(port) && dstType === "PUBLIC" && !isTrustedCDN && packets > 10) {
         score += 60;
@@ -735,7 +735,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Hacker Port Detected: Port ${port} adalah port yang umum digunakan RAT/backdoor (DCRat, Metasploit, netcat).`);
     }
 
-    // --- RULE 8: Inbound Data Burst (C2 response) ---
+    
     if (flow.is_inbound && !isTrustedCDN && dstType === "PRIVATE" &&
         packets > 100 && bytes > 100000 && duration < 60) {
         score += 55;
@@ -743,35 +743,35 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`C2 Response Burst: IP publik tidak dikenal mengirim ${(bytes/1024).toFixed(0)}KB dalam ${duration.toFixed(1)}s. Pola C2 mengirim payload ke victim.`);
     }
 
-    // --- RULE 9: DNS Tunneling / DGA ---
+    
     if (dnsQueryCount > 30 && dstType === "PUBLIC" && !isTrustedCDN && bytesPerPkt < 250) {
         score += 65;
         flags.push("DNS Tunneling / DGA");
         violations.push(`DNS Anomaly: Volume query DNS tinggi (${dnsQueryCount} queries) dengan ukuran paket aneh. Indikasi DNS Tunneling atau C2 DGA resolusi cepat.`);
     }
 
-    // --- RULE 10: Long Sleep Beacon (Sliver / Advanced CS) ---
+    
     if (interval > 120 && interval < 86400 && stdDev < 5.0 && packets >= 3 && dstType === "PUBLIC" && !isTrustedCDN) {
         score += 70;
         flags.push("Sleep Beacon");
         violations.push(`Advanced Beaconing: Pola "Sleep" C2 terdeteksi (interval rata-rata ${interval.toFixed(0)}s, jitter/StdDev ${stdDev.toFixed(1)}s).`);
     }
 
-    // --- RULE 11: TLS/JA3 Anomaly (Suspicious HTTPS without valid SNI) ---
+    
     if (port === 443 && hasTls && sniList.length === 0 && packets > 10 && !isTrustedCDN && dstType === "PUBLIC") {
         score += 50;
         flags.push("TLS Anomaly");
         violations.push(`TLS Fingerprint Mismatch: Koneksi HTTPS aktif tanpa SNI yang valid ke IP publik tak dikenal. Pola umum custom malware crypto/JA3 evasion.`);
     }
 
-    // --- RULE 12: High Entropy Steganography / Obfuscation ---
+    
     if (ipStats.entropyBytes > 0.85 && bytes > 50000 && !isTrustedCDN && dstType === "PUBLIC") {
         score += 35;
         flags.push("Obfuscated Payload");
         violations.push(`High Entropy: Varians transfer data sangat tinggi (Entropi ${ipStats.entropyBytes.toFixed(2)}). Indikasi payload terenkripsi atau steganografi.`);
     }
 
-    // --- RULE 13: Low Jitter Ratio Beacon (Sliver / Havoc / Mythic) ---
+    
     if (
         interval > 60 &&
         jitterRatio < 0.08 &&
@@ -784,7 +784,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Beacon jitter ratio sangat rendah (${jitterRatio.toFixed(3)} = stdDev/interval). Pola otomatis khas C2 beacon (Sliver/Havoc/CS).`);
     }
 
-    // --- RULE 14: Rare External Endpoint ---
+    
     if (
         (ipFrequency[dstIp] || 0) <= 2 &&
         dstType === "PUBLIC" &&
@@ -796,7 +796,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Endpoint muncul sangat jarang dalam capture (${ipFrequency[dstIp] || 1}x). Pola fresh C2 infra atau disposable VPS.`);
     }
 
-    // --- RULE 15: Consistent Packet Cadence (Beacon Signature) ---
+    
     if (
         bytesPerPkt > 50 &&
         bytesPerPkt < 400 &&
@@ -809,7 +809,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Ukuran paket dan interval sangat konsisten (${bytesPerPkt.toFixed(0)} bytes/pkt, stdDev ${stdDev.toFixed(3)}s). Traffic manusia organik jauh lebih random.`);
     }
 
-    // --- RULE 16: Low-and-Slow APT C2 Channel ---
+    
     if (
         duration > 1800 &&
         bytes < 50000 &&
@@ -828,27 +828,27 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`GeoIP Alert: Destination ${dstIp} teridentifikasi dari region ${geoContext}.`);
     }
 
-    // Proteksi IP Lokal Kampus
+    
     if (srcType === "PRIVATE" && dstType === "PRIVATE") {
         score = Math.max(10, score - 30);
     }
 
-    // =========================================================================
-    // NEGATIVE SCORING — Turunkan false positive untuk traffic legitimate
-    // =========================================================================
+    
+    
+    
     const hasValidSNI = sniList.length > 0;
     const packetVarianceHigh = stdDev > 2.0;
     const veryShortSession = duration < 5 && packets < 10;
 
-    if (hasValidSNI) score = Math.max(15, score - 15);       // valid TLS cert → less suspicious
-    if (packetVarianceHigh) score = Math.max(15, score - 10); // random intervals → more human-like
-    if (veryShortSession) score = Math.max(15, score - 10);   // too short to be a persistent C2
+    if (hasValidSNI) score = Math.max(15, score - 15);       
+    if (packetVarianceHigh) score = Math.max(15, score - 10); 
+    if (veryShortSession) score = Math.max(15, score - 10);   
 
-    // =========================================================================
-    // TRAFFIC DIRECTION ANALYSIS — Detect exfil vs download bias
-    // =========================================================================
-    const txBytes = flow.tx_bytes || bytes;          // outbound bytes
-    const rxBytes = flow.rx_bytes || 1;              // inbound bytes (avoid div/0)
+    
+    
+    
+    const txBytes = flow.tx_bytes || bytes;          
+    const rxBytes = flow.rx_bytes || 1;              
     const outboundRatio = txBytes / rxBytes;
 
     if (
@@ -862,9 +862,9 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Traffic Direction: Outbound/Inbound ratio ${outboundRatio.toFixed(1)}x dengan entropi tinggi (${ipStats.entropyBytes.toFixed(2)}). Indikasi eksfiltrasi data aktif.`);
     }
 
-    // =========================================================================
-    // CONNECTION LIFECYCLE — avgBurst sebagai proxy beacon rhythm
-    // =========================================================================
+    
+    
+    
     const avgBurst = duration > 0 ? (bytes / duration) : 0;
     if (
         avgBurst < 20 &&
@@ -877,10 +877,10 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Lifecycle: Throughput rata-rata sangat rendah (${avgBurst.toFixed(1)} B/s selama ${(duration/60).toFixed(1)} menit). Pola beacon keep-alive klasik.`);
     }
 
-    // =========================================================================
-    // CORRELATED MULTI-SIGNAL LAYER — Validasi silang antar indikator
-    // Satu indikator bisa legitimate. 4+ indikator bersamaan = hampir pasti malware.
-    // =========================================================================
+    
+    
+    
+    
     const signalSleepBeacon   = flags.includes("Sleep Beacon");
     const signalLowJitter     = flags.includes("Low Jitter Beacon");
     const signalDnsTunnel     = flags.includes("DNS Tunneling / DGA");
@@ -905,7 +905,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
         violations.push(`Multi-Signal Correlation: ${correlatedSignals} indikator independen terpicu secara bersamaan. False positive sangat tidak mungkin pada kondisi ini.`);
     }
 
-    // --- CONFIDENCE DECAY FOR TRUSTED DOMAINS & NETWORK CONTEXT ---
+    
     let applyConfidenceDecay = false;
     if (isTrustedDomain(domain) || (sniList.length > 0 && sniList.every(sni => isTrustedDomain(sni)))) {
         score = Math.max(15, score - 40);
@@ -921,8 +921,8 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
     if (finalScore >= 75) threatLevel = "CRITICAL";
     else if (finalScore >= 40) threatLevel = "SUSPICIOUS";
 
-    // --- DYNAMIC CONFIDENCE SCORE ---
-    // Confidence != Severity. Multiple independent signals = higher confidence.
+    
+    
     const uniqueFlags = new Set(flags).size;
     let confidence = 40;
     confidence += uniqueFlags * 8;
@@ -946,7 +946,7 @@ function analyzeBehavioralHeuristics(flow, index, allFlows, statsMap, iocDatabas
     };
 }
 
-// Engine Cadangan Ketiga: Local Deterministic Engine (Penyelamat Presentasi jika API Colab & Groq mati/rate-limited)
+
 function localFallbackAnalysis(parsedData, statsMap, iocDatabase) {
     console.log("[*] Menjalankan Local Deterministic Heuristics Engine (Super Premium)...");
     let countCritical = 0;
@@ -995,10 +995,10 @@ function localFallbackAnalysis(parsedData, statsMap, iocDatabase) {
     };
 }
 
-// Fungsi pembantu untuk melakukan analisis PCAP dan mengirimkannya ke LLM
+
 async function processAndAnalyze(pcapFilePath, res, req) {
     try {
-        // 1. Eksekusi extractor.exe secara aman asinkron (mencegah command injection)
+        
         console.log(`[*] Executing extractor.exe on: ${pcapFilePath}`);
         try {
             const platformExt = process.platform === 'win32' ? 'extractor.exe' : './extractor';
@@ -1008,7 +1008,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             return res.status(500).json({ error: "Gagal memproses file PCAP menggunakan Go Extractor." });
         }
 
-        // 2. Baca file output.json hasil extractor
+        
         let fileContent;
         try {
             fileContent = await fs.readFile('output.json', 'utf-8');
@@ -1020,7 +1020,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             return res.status(404).json({ error: "Data PCAP belum tersedia. Pastikan program Golang sudah dieksekusi terlebih dahulu." });
         }
 
-        // 3. Parsing dan Hardening data
+        
         let parsedData;
         try {
             parsedData = JSON.parse(fileContent);
@@ -1039,9 +1039,9 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             console.warn("[WARNING] Data melebihi 200 flow. Memotong data untuk efisiensi.");
         }
 
-        // =========================================================================
-        // PRE-CALCULATE STATISTICS (Standard Deviation & Entropy)
-        // =========================================================================
+        
+        
+        
         const flowsBySrcIp = {};
         parsedData.forEach(flow => {
             const src = flow.src_ip;
@@ -1054,9 +1054,9 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             statsMap[src] = calculateStatisticalVariance(flowsBySrcIp[src]);
         });
 
-        // =========================================================================
-        // RESOLVE HOSTNAMES/DOMAINS & RUN BEHAVIORAL ENGINE
-        // =========================================================================
+        
+        
+        
         const resolvedData = await Promise.all(parsedData.map(async (flow) => {
             const domain = await getDomainFromIp(flow.dst_ip);
             return {
@@ -1065,16 +1065,16 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             };
         }));
 
-        // Baca database IOC secara dinamis dari file teks
+        
         const iocDatabase = await parseIOCs();
 
-        // ── ENRICHMENT LAYER (auto ASN, IOC feed, SNI, HTTP pattern, session agg) ──
+        
         const enrichedData = await enricher.enrich(resolvedData);
 
-        // Deteksi konteks jaringan secara otomatis
+        
         const networkContext = detectNetworkContext(enrichedData);
 
-        // Jalankan mesin Heuristik lokal untuk dynamic scoring & prioritization
+        
         const parsedWithHeuristics = enrichedData.map((flow, index) => {
             const heuristic = analyzeBehavioralHeuristics(flow, index, enrichedData, statsMap, iocDatabase, networkContext);
             return {
@@ -1083,11 +1083,11 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                 heuristic_level: heuristic.threatLevel,
                 heuristic_flags: heuristic.flags,
                 heuristic_violations: heuristic.violations,
-                is_automated_c2: heuristic.isAutomatedC2 // flag bypass AI
+                is_automated_c2: heuristic.isAutomatedC2 
             };
         });
 
-        // Urutkan berdasarkan severity score terbesar ke terkecil
+        
         const sortedData = [...parsedWithHeuristics].sort((a, b) => {
             if (b.heuristic_score !== a.heuristic_score) {
                 return b.heuristic_score - a.heuristic_score;
@@ -1095,10 +1095,10 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             return (a.avg_interval_seconds > 0 ? a.avg_interval_seconds : 999) - (b.avg_interval_seconds > 0 ? b.avg_interval_seconds : 999);
         });
 
-        // Load RAG Threat Intel Knowledge Base secara dinamis
+        
         const knowledgeBaseContent = await loadIOCKnowledgeBase();
 
-        // Filter out flows yang sudah di-bypass (vonis mati lokal SD < 0.1) agar tidak bertanya ke AI
+        
         const flowsForAI = sortedData.filter(flow => !flow.is_automated_c2).slice(0, 30);
         const dataToAnalyze = JSON.stringify(flowsForAI);
 
@@ -1106,20 +1106,20 @@ async function processAndAnalyze(pcapFilePath, res, req) {
         let engineUsed = "REMOTE_BRAIN";
         let codexLastError = null;
 
-        // Cek apakah klien meminta engine tertentu
-        const preferredEngine = req?.headers['x-engine'] || 'auto'; // 'auto' | 'groq' | 'ollama' | 'local' | 'codex'
+        
+        const preferredEngine = req?.headers['x-engine'] || 'auto'; 
         const ollamaModel = req?.headers['x-ollama-model'] || 'llama3';
         const codexModel = normalizeCodexModel(req?.headers['x-codex-model'] || CODEX_DEFAULT_MODEL);
         const ollamaUrl = req?.headers['x-ollama-url'] || 'http://localhost:11434';
 
-        // Hanya hubungi AI jika ada data yang perlu ditanyakan
+        
         if (flowsForAI.length > 0) {
 
-            // ================================================================
-            // ENGINE SELECTOR: client mengirim x-engine header untuk override
-            // ================================================================
+            
+            
+            
 
-            // --- OLLAMA ENGINE ---
+            
             if (preferredEngine === 'ollama') {
                 engineUsed = 'OLLAMA_LOCAL';
                 try {
@@ -1147,7 +1147,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                     aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
                 }
 
-            // --- GROQ DIRECT ENGINE (force Groq, skip Remote Brain) ---
+            
             } else if (preferredEngine === 'groq') {
                 engineUsed = 'CLOUD_FALLBACK';
                 try {
@@ -1179,7 +1179,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                     aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
                 }
 
-            // --- CODEX ENGINE (OpenAI Codex CLI) ---
+            
             } else if (preferredEngine === 'codex') {
                 engineUsed = 'CODEX_CLI';
                 try {
@@ -1196,20 +1196,20 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                     aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
                 }
 
-            // --- LOCAL ENGINE (force local, no AI) ---
+            
             } else if (preferredEngine === 'local') {
                 engineUsed = 'LOCAL_FAST_ENGINE';
                 aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
 
-            // --- AUTO ENGINE (Remote Brain → Codex → Groq → Local) original flow ---
+            
             } else {
-            // 4. Request ke REMOTE BRAIN (Google Colab) dengan sistem FAILOVER/FALLBACK (Stage 3)
+            
             try {
                 console.log(`[*] Mengirimkan request ke Remote Brain (Colab): ${REMOTE_BRAIN_URL}`);
                 const promptText = `${SYSTEM_PROMPT}\n\n=== RAG THREAT INTELLIGENCE KNOWLEDGE BASE ===\n${knowledgeBaseContent}\n\nBerikut adalah data koneksi jaringan terfilter untuk dianalisis secara behavioral:\n\n${dataToAnalyze}`;
                 
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 15000); // Timeout 15 Detik
+                const timeoutId = setTimeout(() => controller.abort(), 15000); 
 
                 const remoteResponse = await fetch(REMOTE_BRAIN_URL, {
                     method: 'POST',
@@ -1248,7 +1248,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             } catch (remoteErr) {
                 console.warn(`[WARNING] Remote Brain (Colab) gagal/timeout (${remoteErr.message}). Mencoba Codex CLI...`);
 
-                // --- AUTO FAILOVER: Try Codex CLI before Groq ---
+                
                 let codexAutoSuccess = false;
                 try {
                     engineUsed = 'CODEX_CLI';
@@ -1268,7 +1268,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                 engineUsed = "CLOUD_FALLBACK";
 
                 try {
-                    // Fallback ke Groq API
+                    
                     const groqKey = req?.headers['x-groq-key'] || process.env.GROQ_API_KEY;
                     if (!groqKey) {
                         throw new Error("GROQ_API_KEY tidak dikonfigurasi dan tidak ada di header");
@@ -1298,7 +1298,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                         body: JSON.stringify(payload)
                     });
 
-                    // Ekstrak data rate limit sisa jika ada
+                    
                     const groqRemainingRequests = response.headers.get('x-ratelimit-remaining-requests') || "N/A";
                     const groqRemainingTokens = response.headers.get('x-ratelimit-remaining-tokens') || "N/A";
 
@@ -1321,10 +1321,10 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                     engineUsed = "LOCAL_FAST_ENGINE";
                     aiResponseObject = localFallbackAnalysis(parsedWithHeuristics, statsMap, iocDatabase);
                 }
-                } // end if (!codexAutoSuccess) — Groq fallback block
-            } // end auto engine's try/catch (Remote Brain fallback chain)
-            } // end else AUTO engine block
-        } // end if (flowsForAI.length > 0)
+                } 
+            } 
+            } 
+        } 
 
 
 
@@ -1335,7 +1335,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
         }
 
         
-        // 5. PENGGABUNGAN CERDAS (MERGING): Gabungkan hasil analisis AI, bypass lokal, dan data sisa
+        
         if (engineUsed !== "LOCAL_FAST_ENGINE") {
             const aiTemuanMap = new Map();
             if (aiResponseObject.temuan && Array.isArray(aiResponseObject.temuan)) {
@@ -1352,7 +1352,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                 const clean = ip => ip ? ip.trim() : "";
                 const key = `${clean(flow.src_ip)}->${clean(flow.dst_ip)}`;
 
-                // A. JIKA DI-BYPASS SECARA LOKAL (SD < 0.1 - Vonis C2 Beaconing)
+                
                 if (flow.is_automated_c2) {
                     const platform = (flow.avg_ttl || 64) > 90 ? "Windows" : "macOS/Linux";
                     return {
@@ -1387,7 +1387,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                     };
                 }
 
-                // B. JIKA DIANALISIS OLEH AI
+                
                 if (aiTemuanMap.has(key)) {
                     const aiItem = aiTemuanMap.get(key);
                     return {
@@ -1421,7 +1421,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                         }
                     };
                 } else {
-                    // C. DATA SISA (HEURISTIK LOKAL)
+                    
                     const platform = (flow.avg_ttl || 64) > 90 ? "Windows" : "macOS/Linux";
                     return {
                         ip_sumber: flow.src_ip,
@@ -1459,7 +1459,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             aiResponseObject.temuan = finalTemuanList;
         }
 
-        // Tentukan status keseluruhan secara dinamis berdasarkan seluruh temuan gabungan aktual
+        
         let overallStatus = "SAFE";
         let hasCritical = false;
         let hasSuspicious = false;
@@ -1495,7 +1495,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
             aiResponseObject.warning = "Data dipotong hingga 200 flow pertama untuk efisiensi sistem.";
         }
 
-        // Hitung statistik ringkasan
+        
         const threatStats = {
             total_flows: aiResponseObject.temuan?.length || 0,
             critical_count: 0,
@@ -1539,11 +1539,11 @@ async function processAndAnalyze(pcapFilePath, res, req) {
                 .slice(0, 5)
         };
 
-        // Cleanup file upload setelah selesai (jangan biarkan menumpuk)
+        
         try {
             await fs.unlink(pcapFilePath);
             console.log(`[*] Cleaned up: ${pcapFilePath}`);
-        } catch (e) { /* ignore */ }
+        } catch (e) {  }
 
         aiResponseObject.engine_used = engineUsed;
         aiResponseObject.network_context = networkContext;
@@ -1556,7 +1556,7 @@ async function processAndAnalyze(pcapFilePath, res, req) {
     }
 }
 
-// Endpoint Upload File PCAP Baru
+
 app.post('/api/upload', upload.single('pcapFile'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: "Mohon unggah file PCAP terlebih dahulu." });
@@ -1565,7 +1565,7 @@ app.post('/api/upload', upload.single('pcapFile'), async (req, res) => {
     await processAndAnalyze(pcapFilePath, res, req);
 });
 
-// Endpoint GET fallback untuk menganalisis data output.json yang sudah ada
+
 app.get('/api/analyze', async (req, res) => {
     await processAndAnalyze('uji_coba.pcap', res, req);
 });
@@ -1591,7 +1591,7 @@ app.get('/api/health', async (req, res) => {
     });
 });
 
-// --- CODEX: Check codex-cli availability ---
+
 app.get('/api/codex-status', async (req, res) => {
     try {
         const { stdout, stderr } = await execFileAsync('codex', ['--version'], { timeout: 5000 });
@@ -1635,7 +1635,7 @@ app.get('/api/codex-status', async (req, res) => {
     }
 });
 
-// --- OLLAMA: List available local models ---
+
 app.get('/api/ollama-models', async (req, res) => {
     const ollamaUrl = req.query.url || 'http://localhost:11434';
     try {

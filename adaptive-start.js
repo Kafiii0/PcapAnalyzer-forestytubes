@@ -1,10 +1,6 @@
 'use strict';
 
-/**
- * adaptive-start.js
- * Starter tunggal The Eye.
- * Fokus: jalankan adaptive engine + harden tombol upload agar File Explorer selalu terbuka.
- */
+
 
 const fs = require('fs');
 const path = require('path');
@@ -99,7 +95,7 @@ function patchIndexFile() {
     changed = true;
   }
 
-  // Native fallback: jadikan tombol header sebagai label file input.
+  
   if (!html.includes('upload-native-label-fallback')) {
     html = html.replace(
       /<button id="btnSmallUpload"([\s\S]*?)>/,

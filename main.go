@@ -201,7 +201,7 @@ func main() {
 			flowTable[key] = stats
 		}
 
-		// DNS Extraction
+		
 		if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
 			dns, _ := dnsLayer.(*layers.DNS)
 			stats.DNSQueryCount += len(dns.Questions)
@@ -210,11 +210,11 @@ func main() {
 			}
 		}
 
-		// Application Layer Extraction (HTTP/TLS)
+		
 		if appLayer := packet.ApplicationLayer(); appLayer != nil {
 			payload := appLayer.Payload()
 			
-			// TLS SNI detection
+			
 			if len(payload) > 50 && payload[0] == 0x16 && payload[5] == 0x01 {
 				stats.HasTLSTraffic = true
 				var currentStr strings.Builder
@@ -232,7 +232,7 @@ func main() {
 				}
 			}
 
-			// HTTP Method detection
+			
 			payloadStr := string(payload)
 			if strings.HasPrefix(payloadStr, "GET ") || strings.HasPrefix(payloadStr, "POST ") || strings.HasPrefix(payloadStr, "PUT ") || strings.HasPrefix(payloadStr, "HEAD ") {
 				stats.HasHTTPTraffic = true
@@ -245,7 +245,7 @@ func main() {
 		}
 	}
 
-	// Multi-port detection prep
+	
 	dstPortCounts := make(map[string]map[string]bool)
 	for key := range flowTable {
 		if dstPortCounts[key.DestIP] == nil {
@@ -264,14 +264,14 @@ func main() {
 		
 		avgTTL := float64(stats.TotalTTL) / float64(stats.PacketCount)
 
-		// BytesPerPacket & BurstScore
+		
 		bytesPerPkt := 0.0
 		if stats.PacketCount > 0 {
 			bytesPerPkt = float64(stats.TotalBytes) / float64(stats.PacketCount)
 		}
 		burstScore := float64(stats.PacketCount) / math.Max(duration, 1.0)
 
-		// IsInbound detection
+		
 		isInbound := false
 		if !strings.HasPrefix(key.SourceIP, "10.") && !strings.HasPrefix(key.SourceIP, "192.168.") && !strings.HasPrefix(key.SourceIP, "172.") {
 			isInbound = true
